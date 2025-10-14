@@ -1,30 +1,39 @@
+# =====================================================
+# GreenOpt — Digital ESG Engine (Full Advanced Edition)
+# Forecasting • Optimization • Anomaly Detection • Scope2 • CBAM • PDF report
+# =====================================================
 from __future__ import annotations
 
-# --- Auto-install guard (그대로 유지) ---
+# ---------- 0) Auto-install guard (keeps app running even if packages missing) ----------
 import sys, subprocess
+
 def _ensure(pkg: str):
-    try: __import__(pkg)
+    try:
+        __import__(pkg)
     except ImportError:
+        print(f"📦 Installing: {pkg} ...")
         subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"], check=True)
 
 for pkg in [
-    "streamlit","pandas","numpy","plotly","scipy","Pillow",
-    "scikit-learn","statsmodels","xgboost","catboost","reportlab"
+    "streamlit", "pandas", "numpy", "plotly", "scipy", "Pillow",
+    "scikit-learn", "statsmodels", "xgboost", "catboost", "reportlab"
 ]:
     _ensure(pkg)
 
-# --- 표준/기본 임포트 ---
+# ---------- 1) Imports ----------
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image
 
-# --- 선택(옵셔널) 라이브러리 플래그를 먼저 기본값으로 정의 ---
+# optional flags (define BEFORE using)
 _HAS_PLOTLY = False
 _HAS_STATSMODELS = False
+_HAS_XGBOOST = False
+_HAS_CATBOOST = False
 
-# --- Plotly (optional) ---
+# Plotly (optional)
 try:
     import plotly.express as px
     import plotly.graph_objects as go
@@ -33,14 +42,28 @@ except Exception:
     px = None
     go = None
 
-# --- statsmodels (optional) ---
+# statsmodels (optional)
 try:
     import statsmodels.api as sm
     _HAS_STATSMODELS = True
 except Exception:
     sm = None
 
-# --- 나머지 임포트 ---
+# xgboost (optional)
+try:
+    from xgboost import XGBRegressor
+    _HAS_XGBOOST = True
+except Exception:
+    XGBRegressor = None
+
+# catboost (optional)
+try:
+    from catboost import CatBoostRegressor
+    _HAS_CATBOOST = True
+except Exception:
+    CatBoostRegressor = None
+
+# rest
 from scipy.optimize import minimize
 from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
@@ -49,21 +72,20 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
-# --- 페이지 설정은 UI 출력 전에 ---
+# ---------- 2) Page & paths ----------
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
 
-# (선택) 디버그 캡션은 여기 ‘이후’에 출력해야 합니다.
-st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
-st.caption(f"plotly available: {_HAS_PLOTLY}")
-
-
-# ---------- 2) Paths & page ----------
-st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
 APP_DIR = Path(__file__).resolve().parent
 ROOT = APP_DIR.parents[0]
 DATA_DIR = ROOT / "data"
 ASSET_DIR = APP_DIR / "assets"
-DEFAULT_CSV = DATA_DIR / "factory_data.csv"   # 3년 데이터가 있는 파일명 가정
+DEFAULT_CSV = DATA_DIR / "factory_data.csv"   # 3년 데이터가 있다고 가정
+
+# (debug captions — optional)
+st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
+st.caption(f"plotly available: {_HAS_PLOTLY}")
+st.caption(f"xgboost available: {_HAS_XGBOOST}")
+st.caption(f"catboost available: {_HAS_CATBOOST}")
 
 # ---------- 3) Emission factors & helpers ----------
 EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg CO2e/kWh (location-based 예시)
@@ -170,8 +192,8 @@ with st.sidebar:
 
 # ---------- 7) Apply filters ----------
 mask = (df["timestamp"] >= pd.to_datetime(start_date)) & (df["timestamp"] <= pd.to_datetime(end_date) + pd.Timedelta(days=1)-pd.Timedelta(seconds=1))
-if sel_lines and "line" in df.columns:     mask &= df["line"].isin(sel_lines)
-if sel_products and "product" in df.columns: mask &= df["product"].isin(sel_products)
+if sel_lines and "line" in df.columns:       mask &= df["line"].isin(sel_lines)
+if sel_products and "product" in df.columns:  mask &= df["product"].isin(sel_products)
 df = df.loc[mask].copy()
 
 # ---------- 8) Carbon columns with chosen Scope2 EF ----------
@@ -214,29 +236,30 @@ else:
 # ---------- 11) STL decomposition ----------
 st.subheader("Seasonal-Trend Decomposition (STL)")
 with st.expander("Show STL decomposition"):
-    try:
-        # 균등 간격이 아니면 asfreq로 보정 시도
-        # 간격 추정 실패 시 그대로 진행
-        s = df_g.set_index("timestamp")["co2e_kg"]
+    if not _HAS_STATSMODELS:
+        st.info("statsmodels가 설치되어 있지 않아 STL 분석을 건너뜁니다. requirements.txt에 statsmodels를 추가하세요.")
+    else:
         try:
-            step = df_g["timestamp"].diff().mode()[0]
-            s = s.asfreq(step, method="pad")
-        except Exception:
-            pass
-        stl = sm.tsa.STL(s, robust=True).fit()
-        if _HAS_PLOTLY:
-            comp_fig = go.Figure()
-            comp_fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend"))
-            comp_fig.add_trace(go.Scatter(x=stl.seasonal.index, y=stl.seasonal.values, name="Seasonal"))
-            comp_fig.add_trace(go.Scatter(x=stl.resid.index, y=stl.resid.values, name="Residual"))
-            comp_fig.update_layout(title="STL Components")
-            st.plotly_chart(comp_fig, use_container_width=True)
-        else:
-            st.write("Trend(head):", stl.trend.head())
-            st.write("Seasonal(head):", stl.seasonal.head())
-            st.write("Residual(head):", stl.resid.head())
-    except Exception as e:
-        st.info(f"STL decomposition skipped: {e}")
+            s = df_g.set_index("timestamp")["co2e_kg"]
+            try:
+                step = df_g["timestamp"].diff().mode()[0]
+                s = s.asfreq(step, method="pad")
+            except Exception:
+                pass
+            stl = sm.tsa.STL(s, robust=True).fit()
+            if _HAS_PLOTLY:
+                comp_fig = go.Figure()
+                comp_fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend"))
+                comp_fig.add_trace(go.Scatter(x=stl.seasonal.index, y=stl.seasonal.values, name="Seasonal"))
+                comp_fig.add_trace(go.Scatter(x=stl.resid.index, y=stl.resid.values, name="Residual"))
+                comp_fig.update_layout(title="STL Components")
+                st.plotly_chart(comp_fig, use_container_width=True)
+            else:
+                st.write("Trend(head):", stl.trend.head())
+                st.write("Seasonal(head):", stl.seasonal.head())
+                st.write("Residual(head):", stl.resid.head())
+        except Exception as e:
+            st.info(f"STL decomposition skipped: {e}")
 
 # ---------- 12) Anomaly detection ----------
 st.subheader("Anomaly Detection")
@@ -274,7 +297,6 @@ with st.expander("Train models & forecast (with AutoML)"):
         dff[f"lag_{lag}"] = dff["co2e_kg"].shift(lag)
     dff["roll_7"] = dff["co2e_kg"].rolling(7).mean()
 
-    # multivariate features (if provided or synthesized)
     for col in ["temperature_c", "utilization_pct"]:
         if col in dff.columns:
             for lag in [1,2,3]:
@@ -297,65 +319,71 @@ with st.expander("Train models & forecast (with AutoML)"):
         pred_gbr = gbr.predict(X_test)
         mae_gbr  = mean_absolute_error(y_test, pred_gbr)
 
-        # ARIMA small grid
-        try:
-            y_series = train.set_index("timestamp")["co2e_kg"]
-            best_aic, best_model, best_order = 1e18, None, None
-            for p in [0,1,2]:
-                for d in [0,1]:
-                    for q in [0,1,2]:
-                        try:
-                            m = sm.tsa.ARIMA(y_series, order=(p,d,q)).fit()
-                            if m.aic < best_aic:
-                                best_aic, best_model, best_order = m.aic, m, (p,d,q)
-                        except:
-                            pass
-            if best_model is not None:
-                pred_arima = best_model.forecast(steps=horizon).values
-                mae_arima  = mean_absolute_error(y_test.values, pred_arima)
-            else:
-                pred_arima, mae_arima = None, np.inf
-        except Exception:
-            pred_arima, mae_arima = None, np.inf
+        # ARIMA small grid (guarded)
+        pred_arima, mae_arima, best_order = None, np.inf, None
+        if _HAS_STATSMODELS:
+            try:
+                y_series = train.set_index("timestamp")["co2e_kg"]
+                best_aic, best_model, best_order = 1e18, None, None
+                for p in [0,1,2]:
+                    for d in [0,1]:
+                        for q in [0,1,2]:
+                            try:
+                                m = sm.tsa.ARIMA(y_series, order=(p,d,q)).fit()
+                                if m.aic < best_aic:
+                                    best_aic, best_model, best_order = m.aic, m, (p,d,q)
+                            except:
+                                pass
+                if best_model is not None:
+                    pred_arima = best_model.forecast(steps=horizon).values
+                    mae_arima  = mean_absolute_error(y_test.values, pred_arima)
+            except Exception:
+                pred_arima, mae_arima, best_order = None, np.inf, None
+        else:
+            st.info("ARIMA skipped (statsmodels not available).")
 
-        # AutoML: XGBoost (randomized search + TimeSeriesSplit)
+        # AutoML: XGBoost (if available)
         best_name, best_model_obj, best_pred, best_mae = "GBR", gbr, pred_gbr, mae_gbr
-        try:
-            from xgboost import XGBRegressor
-            xgb = XGBRegressor(n_estimators=400, learning_rate=0.05, max_depth=6,
-                               subsample=0.8, colsample_bytree=0.8, random_state=42)
-            param_xgb = {
-                "n_estimators": [300, 400, 600],
-                "max_depth": [4, 6, 8],
-                "learning_rate": [0.03, 0.05, 0.1],
-                "subsample": [0.7, 0.8, 1.0],
-                "colsample_bytree": [0.7, 0.8, 1.0],
-            }
-            tscv = TimeSeriesSplit(n_splits=3)
-            rs_xgb = RandomizedSearchCV(xgb, param_distributions=param_xgb, n_iter=8, cv=tscv,
-                                        scoring="neg_mean_absolute_error", random_state=42, n_jobs=-1)
-            rs_xgb.fit(X_train, y_train)
-            pred_xgb = rs_xgb.best_estimator_.predict(X_test)
-            mae_xgb  = mean_absolute_error(y_test, pred_xgb)
-            if mae_xgb < best_mae:
-                best_name, best_model_obj, best_pred, best_mae = "XGBoost", rs_xgb.best_estimator_, pred_xgb, mae_xgb
-        except Exception:
-            pass
+        if _HAS_XGBOOST:
+            try:
+                xgb = XGBRegressor(n_estimators=400, learning_rate=0.05, max_depth=6,
+                                   subsample=0.8, colsample_bytree=0.8, random_state=42)
+                param_xgb = {
+                    "n_estimators": [300, 400, 600],
+                    "max_depth": [4, 6, 8],
+                    "learning_rate": [0.03, 0.05, 0.1],
+                    "subsample": [0.7, 0.8, 1.0],
+                    "colsample_bytree": [0.7, 0.8, 1.0],
+                }
+                tscv = TimeSeriesSplit(n_splits=3)
+                rs_xgb = RandomizedSearchCV(xgb, param_distributions=param_xgb, n_iter=8, cv=tscv,
+                                            scoring="neg_mean_absolute_error", random_state=42, n_jobs=-1)
+                rs_xgb.fit(X_train, y_train)
+                pred_xgb = rs_xgb.best_estimator_.predict(X_test)
+                mae_xgb  = mean_absolute_error(y_test, pred_xgb)
+                if mae_xgb < best_mae:
+                    best_name, best_model_obj, best_pred, best_mae = "XGBoost", rs_xgb.best_estimator_, pred_xgb, mae_xgb
+            except Exception:
+                pass
+        else:
+            st.caption("XGBoost not available — skipped.")
 
-        # AutoML: CatBoost (빠른 기본 설정)
-        try:
-            from catboost import CatBoostRegressor
-            cbr = CatBoostRegressor(
-                iterations=500, depth=6, learning_rate=0.05, loss_function="MAE",
-                verbose=False, random_state=42
-            )
-            cbr.fit(X_train, y_train)
-            pred_cbr = cbr.predict(X_test)
-            mae_cbr  = mean_absolute_error(y_test, pred_cbr)
-            if mae_cbr < best_mae:
-                best_name, best_model_obj, best_pred, best_mae = "CatBoost", cbr, pred_cbr, mae_cbr
-        except Exception:
-            pass
+        # AutoML: CatBoost (if available)
+        if _HAS_CATBOOST:
+            try:
+                cbr = CatBoostRegressor(
+                    iterations=500, depth=6, learning_rate=0.05, loss_function="MAE",
+                    verbose=False, random_state=42
+                )
+                cbr.fit(X_train, y_train)
+                pred_cbr = cbr.predict(X_test)
+                mae_cbr  = mean_absolute_error(y_test, pred_cbr)
+                if mae_cbr < best_mae:
+                    best_name, best_model_obj, best_pred, best_mae = "CatBoost", cbr, pred_cbr, mae_cbr
+            except Exception:
+                pass
+        else:
+            st.caption("CatBoost not available — skipped.")
 
         colA, colB, colC = st.columns(3)
         colA.metric("Best model", best_name)
