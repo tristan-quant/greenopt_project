@@ -118,19 +118,58 @@ def load_factory_data(path: Path) -> pd.DataFrame:
     return df
 
 # ---------- 4) 헤더/로고 ----------
-cols_head = st.columns([0.7, 0.3])
-with cols_head[0]:
-    st.title("GreenOpt — AI-driven Carbon Footprint Calculator")
-    st.caption("Hourly CO₂e and Product Carbon Footprint (PCF) with filters, upload, KPIs, and downloads.")
-with cols_head[1]:
-    logo_path: Optional[Path] = next((p for p in LOGO_CANDIDATES if p.exists()), None)
-    if logo_path:
-        try:
-            st.image(Image.open(logo_path), caption="", use_container_width=True)
-        except Exception:
-            pass
+# ---------- 로고 자동탐색 + 디버그 ----------
+import os
+from pathlib import Path
+from PIL import Image
 
-st.divider()
+def find_logo_paths(root: Path) -> list[Path]:
+    candidates = []
+    # 1) 명시적 후보 위치
+    explicit = [
+        root / "assets" / "logo_512.png",
+        root / "assets" / "logo.png",
+        root / "assets" / "brand" / "logo_512.png",
+        root / "assets" / "brand" / "logo.png",
+        # 혹시 app/assets 에 넣었을 가능성까지 탐색
+        root / "app" / "assets" / "logo_512.png",
+        root / "app" / "assets" / "logo.png",
+    ]
+    for p in explicit:
+        if p.exists():
+            candidates.append(p)
+
+    # 2) repo 전체에서 logo*.(png|jpg) 스캔 (너무 넓으면 필요 시 주석)
+    for ext in ("*.png", "*.jpg", "*.jpeg"):
+        for p in root.rglob(f"logo*{ext[1:]}"):  # e.g., logo*.png
+            if p.is_file() and p not in candidates:
+                candidates.append(p)
+
+    return candidates
+
+def show_logo_debug(root: Path):
+    assets_dir = root / "assets"
+    st.caption(f"🔎 Logo search base: {root}")
+    st.caption(f"🔎 assets dir exists: {assets_dir.exists()} ({assets_dir})")
+    if assets_dir.exists():
+        try:
+            st.caption("📂 assets contents (top-level): " + ", ".join(sorted(os.listdir(assets_dir))[:20]))
+        except Exception as e:
+            st.caption(f"⚠️ assets list error: {e}")
+
+logo_candidates = find_logo_paths(ROOT)
+if logo_candidates:
+    logo_path = logo_candidates[0]
+    try:
+        st.image(Image.open(logo_path), caption="", use_container_width=True)
+        st.caption(f"✅ Loaded logo: {logo_path.relative_to(ROOT)}")
+    except Exception as e:
+        st.warning(f"⚠️ Failed to load logo: {logo_path} ({e})")
+        show_logo_debug(ROOT)
+else:
+    st.info("ℹ️ No logo found. Looking in /assets by default.")
+    show_logo_debug(ROOT)
+
 
 # ---------- 5) 데이터 로딩 및 업로드 ----------
 with st.sidebar:
