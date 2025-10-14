@@ -22,7 +22,9 @@ for pkg in [
 ]:
     _ensure(pkg)
 
+st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
 # ---------- 1) Imports ----------
+
 from pathlib import Path
 import numpy as np
 import pandas as pd
