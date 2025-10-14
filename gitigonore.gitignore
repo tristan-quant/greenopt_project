@@ -1,0 +1,30 @@
+# OS / user
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Data / reports (optional)
+reports/*.pkl
+reports/*.h5
+reports/*.png
+reports/*.csv
+
+# Envs
+.env
+*.env
+
+# Editors
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Windows noise (safety)
+AppData/
