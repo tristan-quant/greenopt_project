@@ -1,12 +1,22 @@
+# app/app.py
 from __future__ import annotations
+
+# --- 프로젝트 루트 경로 추가 (ModuleNotFoundError 방지) ---
+from pathlib import Path
+import sys
+ROOT = Path(__file__).resolve().parents[1]  # src/, data/, reports/가 있는 프로젝트 루트
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+# --------------------------------------------------------
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from pathlib import Path
 
 from src.carbon_engine import add_carbon_columns
 from src.data_utils import load_factory_data
 
+# Streamlit 기본 설정
 st.set_page_config(page_title="GreenOpt — CO₂e Dashboard", layout="wide")
 
 DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "factory_data.csv"
@@ -24,9 +34,7 @@ def load_and_prepare(path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Required columns missing: {missing}")
     df = add_carbon_columns(df)
-    # 핵심 컬럼 결측 제거(필요시 Imputer로 대체 가능)
     df = df.dropna(subset=["timestamp", "electricity_kwh", "gas_m3", "co2e_kg"]).copy()
-    # 정렬 보장
     df = df.sort_values("timestamp")
     return df
 
@@ -52,13 +60,10 @@ date_range = st.sidebar.date_input(
     "Date range", [date_min, date_max], min_value=date_min, max_value=date_max
 )
 
-# 집계 단위 선택
 agg_level = st.sidebar.selectbox("Aggregation", ["Hourly", "Daily"], index=0)
 
-# 필터 적용
 if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
     start = pd.to_datetime(date_range[0])
-    # 끝일 포함을 위해 +1day 후 미만(<) 필터
     end = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
     df = df[(df["timestamp"] >= start) & (df["timestamp"] < end)]
 else:
@@ -82,7 +87,6 @@ col1, col2, col3 = st.columns(3)
 col1.metric("Total CO₂e (kg)", f"{plot_df['co2e_kg'].sum():,.0f}")
 col2.metric("Avg CO₂e per hour/day (kg)", f"{plot_df['co2e_kg'].mean():,.2f}")
 if "production_ton" in df.columns and df["production_ton"].notna().any():
-    # 집계 레벨에 맞춰 pcf 평균(단순평균) 표기
     pcf_series = df["pcf_kg_per_ton"].dropna()
     col3.metric("Avg PCF (kg/ton)", f"{pcf_series.mean():,.2f}")
 else:
@@ -108,3 +112,4 @@ st.download_button(
     file_name="greenopt_filtered.csv",
     mime="text/csv",
 )
+
