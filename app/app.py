@@ -1,3 +1,25 @@
+# app/app.py  (파일 맨 위)
+from __future__ import annotations
+import sys, subprocess
+
+# ---- 사전 설치 가드: 배포/로컬 어디서든 누락시 설치 ----
+def _ensure(pkg: str):
+    try:
+        __import__(pkg)
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"], check=True)
+
+for pkg in ["plotly", "scipy", "Pillow"]:
+    _ensure(pkg)
+
+# ---- 여기서부터 일반 임포트 ----
+import numpy as np
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+from scipy.optimize import minimize
+from PIL import Image
+
 from __future__ import annotations
 import json
 from pathlib import Path
