@@ -9,6 +9,3 @@ statsmodels
 xgboost
 catboost
 reportlab
-git add requirements.txt
-git commit -m "force rebuild: trigger reportlab install"
-git push
