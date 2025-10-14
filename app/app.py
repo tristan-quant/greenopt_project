@@ -1,57 +1,61 @@
-# =====================================================
-# GreenOpt — Digital ESG Engine (Full Advanced Edition)
-# Forecasting • Optimization • Anomaly Detection • Scope2 method • PDF report
-# =====================================================
 from __future__ import annotations
 
-# ---------- 0) Auto-install guard (keeps app running even if packages missing) ----------
+# --- Auto-install guard (그대로 유지) ---
 import sys, subprocess
-
 def _ensure(pkg: str):
-    try:
-        __import__(pkg)
+    try: __import__(pkg)
     except ImportError:
-        print(f"📦 Installing: {pkg} ...")
         subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"], check=True)
 
 for pkg in [
-    "streamlit", "pandas", "numpy", "plotly", "scipy", "Pillow",
-    "scikit-learn", "statsmodels",
-    "xgboost", "catboost",
-    "reportlab"
+    "streamlit","pandas","numpy","plotly","scipy","Pillow",
+    "scikit-learn","statsmodels","xgboost","catboost","reportlab"
 ]:
     _ensure(pkg)
 
-st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
-# ---------- 1) Imports ----------
-
+# --- 표준/기본 임포트 ---
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image
 
-# plotting
+# --- 선택(옵셔널) 라이브러리 플래그를 먼저 기본값으로 정의 ---
+_HAS_PLOTLY = False
+_HAS_STATSMODELS = False
+
+# --- Plotly (optional) ---
 try:
     import plotly.express as px
     import plotly.graph_objects as go
     _HAS_PLOTLY = True
 except Exception:
-    _HAS_PLOTLY = False
+    px = None
+    go = None
 
-# optimization
+# --- statsmodels (optional) ---
+try:
+    import statsmodels.api as sm
+    _HAS_STATSMODELS = True
+except Exception:
+    sm = None
+
+# --- 나머지 임포트 ---
 from scipy.optimize import minimize
-
-# ML / stats
 from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
-import statsmodels.api as sm
-
-# PDF report
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+
+# --- 페이지 설정은 UI 출력 전에 ---
+st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
+
+# (선택) 디버그 캡션은 여기 ‘이후’에 출력해야 합니다.
+st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
+st.caption(f"plotly available: {_HAS_PLOTLY}")
+
 
 # ---------- 2) Paths & page ----------
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
