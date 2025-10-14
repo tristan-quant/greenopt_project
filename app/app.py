@@ -27,6 +27,12 @@ import pandas as pd
 import streamlit as st   # ✅ 이제부터 st 사용 가능
 from PIL import Image
 
+# optional flags (define BEFORE using)
+_HAS_PLOTLY = False
+_HAS_STATSMODELS = False
+_HAS_XGBOOST = False
+_HAS_CATBOOST = False
+
 # Plotly (optional)
 try:
     import plotly.express as px
@@ -65,6 +71,15 @@ from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+
+# ---------- util: safe capability banner ----------
+def _capabilities_banner():
+    st.caption(
+        f"Capabilities — plotly: {_HAS_PLOTLY} | "
+        f"statsmodels: {_HAS_STATSMODELS} | "
+        f"xgboost: {_HAS_XGBOOST} | "
+        f"catboost: {_HAS_CATBOOST}"
+    )
 
 # ---------- 2) Page & paths ----------
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
@@ -131,6 +146,7 @@ with header_cols[0]:
 with header_cols[1]:
     st.title("GreenOpt — AI Carbon Intelligence Platform")
     st.caption("Forecasting • Optimization • Anomaly detection • 3-year time-series analytics")
+    _capabilities_banner()  # ✅ 모든 플래그가 정의된 이후 안전하게 호출
 
 st.divider()
 
