@@ -81,11 +81,6 @@ DATA_DIR = ROOT / "data"
 ASSET_DIR = APP_DIR / "assets"
 DEFAULT_CSV = DATA_DIR / "factory_data.csv"   # 3년 데이터가 있다고 가정
 
-# (debug captions — optional)
-st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
-st.caption(f"plotly available: {_HAS_PLOTLY}")
-st.caption(f"xgboost available: {_HAS_XGBOOST}")
-st.caption(f"catboost available: {_HAS_CATBOOST}")
 
 # ---------- 3) Emission factors & helpers ----------
 EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg CO2e/kWh (location-based 예시)
