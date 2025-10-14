@@ -1,22 +1,20 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (Full Advanced Edition)
-# Forecasting • Optimization • Anomaly Detection • Scope2 • CBAM • PDF report
+# GreenOpt — Digital ESG Engine
 # =====================================================
 from __future__ import annotations
 
-# ---------- 0) Auto-install guard (keeps app running even if packages missing) ----------
+# ---------- 0) Auto-install guard ----------
 import sys, subprocess
 
 def _ensure(pkg: str):
     try:
         __import__(pkg)
     except ImportError:
-        print(f"📦 Installing: {pkg} ...")
         subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"], check=True)
 
 for pkg in [
-    "streamlit", "pandas", "numpy", "plotly", "scipy", "Pillow",
-    "scikit-learn", "statsmodels", "xgboost", "catboost", "reportlab"
+    "streamlit","pandas","numpy","plotly","scipy","Pillow",
+    "scikit-learn","statsmodels","xgboost","catboost","reportlab"
 ]:
     _ensure(pkg)
 
@@ -24,10 +22,10 @@ for pkg in [
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import streamlit as st
+import streamlit as st   # ✅ 이제부터 st 사용 가능
 from PIL import Image
 
-# optional flags (define BEFORE using)
+# ---------- 2) Optional flags ----------
 _HAS_PLOTLY = False
 _HAS_STATSMODELS = False
 _HAS_XGBOOST = False
@@ -63,25 +61,19 @@ try:
 except Exception:
     CatBoostRegressor = None
 
-# rest
+# 나머지 import
 from scipy.optimize import minimize
 from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
-from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
+from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
-# ---------- 2) Page & paths ----------
+# ---------- 3) Page config ----------
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
 
-APP_DIR = Path(__file__).resolve().parent
-ROOT = APP_DIR.parents[0]
-DATA_DIR = ROOT / "data"
-ASSET_DIR = APP_DIR / "assets"
-DEFAULT_CSV = DATA_DIR / "factory_data.csv"   # 3년 데이터가 있다고 가정
-
-# (debug captions — optional)
+# ✅ 이제 caption을 여기에 써야 정상작동
 st.caption(f"statsmodels available: {_HAS_STATSMODELS}")
 st.caption(f"plotly available: {_HAS_PLOTLY}")
 st.caption(f"xgboost available: {_HAS_XGBOOST}")
