@@ -27,12 +27,6 @@ import pandas as pd
 import streamlit as st   # ✅ 이제부터 st 사용 가능
 from PIL import Image
 
-# optional flags (define BEFORE using)
-_HAS_PLOTLY = False
-_HAS_STATSMODELS = False
-_HAS_XGBOOST = False
-_HAS_CATBOOST = False
-
 # Plotly (optional)
 try:
     import plotly.express as px
