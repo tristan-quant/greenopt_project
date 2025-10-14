@@ -81,7 +81,6 @@ DATA_DIR = ROOT / "data"
 ASSET_DIR = APP_DIR / "assets"
 DEFAULT_CSV = DATA_DIR / "factory_data.csv"   # 3년 데이터가 있다고 가정
 
-
 # ---------- 3) Emission factors & helpers ----------
 EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg CO2e/kWh (location-based 예시)
 EMISSION_FACTOR_GAS = 2.0                    # kg CO2e/m3
@@ -133,6 +132,8 @@ with header_cols[0]:
     logo = next((p for p in logo_candidates if p.exists()), None)
     if logo:
         st.image(Image.open(logo))
+    else:
+        st.caption("No logo found (optional). Place one in app/assets/ or assets/.")
 with header_cols[1]:
     st.title("GreenOpt — AI Carbon Intelligence Platform")
     st.caption("Forecasting • Optimization • Anomaly detection • 3-year time-series analytics")
@@ -177,12 +178,14 @@ with st.sidebar:
         df = df.merge(df_aux, on="timestamp", how="left")
         st.success("AUX merged: " + ", ".join([c for c in df_aux.columns if c != "timestamp"]))
     else:
+        # 항상 t_days를 먼저 정의(둘 중 하나만 비어 있어도 오류 없이 생성)
+        t_days = (df["timestamp"] - df["timestamp"].min()).dt.days.values
+
         # AUX 미제공 시 예시 피처 생성 (동작 보장)
         if "temperature_c" not in df.columns:
-            t = (df["timestamp"] - df["timestamp"].min()).dt.days.values
-            df["temperature_c"] = 18 + 7*np.sin(2*np.pi*(t/365)) + np.random.normal(0, 1.5, len(df))
+            df["temperature_c"] = 18 + 7*np.sin(2*np.pi*(t_days/365)) + np.random.normal(0, 1.5, len(df))
         if "utilization_pct" not in df.columns:
-            base = 70 + 20*np.sin(2*np.pi*(t/30)) + np.random.normal(0, 5, len(df))
+            base = 70 + 20*np.sin(2*np.pi*(t_days/30)) + np.random.normal(0, 5, len(df))
             df["utilization_pct"] = np.clip(base, 20, 100)
 
 # ---------- 7) Apply filters ----------
