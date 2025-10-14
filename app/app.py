@@ -1,8 +1,9 @@
-# app/app.py  (파일 맨 위)
+# ✅ 1. 이 줄은 반드시 맨 첫 줄이어야 합니다.
 from __future__ import annotations
+
+# ✅ 2. 그 아래부터 설치 가드 블록 추가
 import sys, subprocess
 
-# ---- 사전 설치 가드: 배포/로컬 어디서든 누락시 설치 ----
 def _ensure(pkg: str):
     try:
         __import__(pkg)
@@ -12,7 +13,7 @@ def _ensure(pkg: str):
 for pkg in ["plotly", "scipy", "Pillow"]:
     _ensure(pkg)
 
-# ---- 여기서부터 일반 임포트 ----
+# ✅ 3. 이후 일반 import 들
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -20,15 +21,11 @@ import plotly.express as px
 from scipy.optimize import minimize
 from PIL import Image
 
-from __future__ import annotations
-import json
-from pathlib import Path
-import numpy as np
-import pandas as pd
-import streamlit as st
-import plotly.express as px
-from scipy.optimize import minimize
-from PIL import Image
+# ---------- 페이지 설정 ----------
+st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
+
+# 여기에 나머지 코드 계속...
+
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
