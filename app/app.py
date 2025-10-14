@@ -1,226 +1,191 @@
 # app/app.py
 from __future__ import annotations
+import sys, subprocess, json, base64
 from pathlib import Path
-import base64
-import io
-import sys
-
-import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import streamlit as st
 
-# ─────────────────────────────────────────────────────────
-# 설정: 페이지
-st.set_page_config(page_title="GreenOpt — CO₂e Intelligence Dashboard", layout="wide")
+# ---------- 자동 설치 ----------
+for pkg in ["plotly", "numpy", "pandas", "scipy"]:
+    try:
+        __import__(pkg)
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"])
 
-# 프로젝트 루트
+import plotly.express as px
+from scipy.optimize import minimize
+
+# ---------- 페이지 설정 ----------
+st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True)
 
-# ─────────────────────────────────────────────────────────
-# 로고(Base64) — 파일 없이 동작
-# 필요하면 나중에 실제 파일로 교체 가능
-LOGO_BASE64 = """
-iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAYAAACe+Y9XAAAABHNCSVQICAgIfAhkiAAAAbZJREFUeJztm8FtwkAQhT+V
-rM9oBNbW2pHkqQxaKQJQwKcn5m8WmJw2S1yA9O3qP8Fq0r4W4k7w8w0b3iE1XlV3o3Wb7wqQpU0l1Q5wFJH8pGq2sK6c8Z
-Yx0NwVqfZQv3V8rWwVv7x7g7Gg1nQbq0Qb6mE5Ewq2tX8l0oK6u3oQJxk2hJ0k7bV0lq2p8mC3H1Rk0x3Y1w+2M0i3HkB8
-q6cVQWwU2vQw3rQivc5I0QJYw5kJfWc8cGQJzQkJwFQ5cQzFJv0o3wZyY0n0w1cEJrXVwZb9b2yHq3Jq2Cw3m0Cz3c5mS
-vQ7kqgZ9KzS9WkK7c9H2wGJv3m4J1z0wHfQxvK5m3oCwqK4G0sKqkJ8GQhB2rQ5j8iGqf6q2Yw1m9T3bqNwq8ZbU4v8w8u
-J3t9Qq3P8t3d8Q3q4n0B2h7wYlq6c8cTjJmGkq8P8p8gYxgcmcQAAAB8Y0lEQVR4nO2bW2wUVRzHP6r9w1C4lR6kQe0iI
-yZQq1wYQk0cFZ9J0VQmJ+o1w7H3yq8nQ2+JfQzP2yqgWlG7S4K5mQ2SYQ2mYyVqg2mQ3k3qQm0i2v8b7lS9b3t2s2s9m+f
-Zzqf3s1gYVb+qF3c+7e+77z3ru9gJZrVfZpX4k2q1Z9W8i5m2sYx2xwKJco2l3hQw1+gUQW1Gd8G3gXlq6r2TQ8Jr7rH1b
-6BbgT2oQ8k6oU2k2M3k8a4C2gQk9qk9q6yqRk4rQ8A2oS8k4yG3wS8tJ5qQ2o6g/1y5x5uG8JYB2V3l8m2KX4xgqY1s8b9
-p5JgqzYbq7T0zYfHfGmP3Ykqkq6mT0Cw2wq4uH9wqk3QGJzH4H0b2g8pZ9BqkC1mG8rQv3zQ7o3y2Qm1q4wqkH2m8gZqf
-kL2U3E0y0vQn2m8oZqfUL2U3E0y0vQn2m8oZqfUL2U3E0y0vQn2m8oY8Ew9Gm8r1Qkq6oYjL0mL3b6y1iWlYp6m0Uo4bJ
-…(생략 가능: 실제 배포엔 이대로 두세요)…
+# ---------- 로고 (SVG) ----------
+LOGO_SVG = """
+<svg width="52" height="52" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="32" cy="32" r="30" stroke="#00FFAA" stroke-width="2" fill="none"/>
+  <path d="M16 36 C16 22 28 14 38 14 C38 24 30 36 16 36 Z" fill="#00FFAA" fill-opacity="0.15" />
+  <path d="M18 34 C18 24 28 18 36 18" stroke="#00FFAA" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M24 30 L30 26" stroke="#00FFAA" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M22 26 L26 23" stroke="#00FFAA" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="36" cy="18" r="2.2" fill="#00FFAA"/>
+  <circle cx="30" cy="26" r="2" fill="#00FFAA"/>
+  <circle cx="26" cy="23" r="1.8" fill="#00FFAA"/>
+</svg>
 """
-
-# ─────────────────────────────────────────────────────────
-# 유틸: 로고 렌더
-def render_header():
-    st.markdown(
-        f"""
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-            <img src="data:image/png;base64,{LOGO_BASE64.strip()}" width="54">
-            <div>
-                <h1 style="color:#00FFAA;margin:0;">GreenOpt — CO₂e Intelligence Dashboard</h1>
-                <p style="color:#999;margin:0;">AI-driven Carbon Footprint & Forecast System</p>
-            </div>
+st.markdown(
+    f"""
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <div>{LOGO_SVG}</div>
+        <div>
+            <h1 style="color:#00FFAA;margin:0;">GreenOpt — Digital ESG Engine</h1>
+            <p style="color:#9aa0a6;margin:0;">AI-driven Carbon Optimization & Catena-X Export</p>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-# ─────────────────────────────────────────────────────────
-# 데이터 로드/생성
+# ---------- 데이터 로드 ----------
 @st.cache_data(show_spinner=False)
-def load_or_seed() -> pd.DataFrame:
-    target = DATA_DIR / "factory_data_3y.csv"
-    if not target.exists():
-        # 3년치 시뮬레이션 데이터 시드 (시간당)
-        ts = pd.date_range("2022-10-15 00:00:00", "2025-10-15 00:00:00", freq="H", inclusive="left")
+def load_data():
+    path = DATA_DIR / "factory_data_3y.csv"
+    if not path.exists():
+        ts = pd.date_range("2022-10-15", "2025-10-15", freq="D")
         rng = np.random.default_rng(42)
-
-        hours = ts.hour
-        months = ts.month
-        elec = (
-            450
-            + 50*np.sin((hours-8)/24*2*np.pi)
-            + 30*np.cos((hours)/24*2*np.pi)
-            + 60*np.where((months>=6)&(months<=8), 1.2, 1.0)
-            + rng.normal(0, 15, len(ts))
-        )
-        gas = (
-            55 + 8*np.cos((hours-6)/24*2*np.pi)
-            + 25*np.where((months<=3)|(months>=11), 1.2, 0.8)
-            + rng.normal(0, 3.5, len(ts))
-        )
-        weekday = pd.Series(ts).dt.weekday.values
-        prod = (
-            (20 + 3*np.sin((hours-9)/24*2*np.pi))
-            * np.where(weekday>=5, 0.65, 1.0)
-            + rng.normal(0, 1.2, len(ts))
-        )
         df = pd.DataFrame({
             "timestamp": ts,
-            "electricity_kwh": np.clip(elec, 280, None).round(2),
-            "gas_m3": np.clip(gas, 10, None).round(2),
-            "production_ton": np.clip(prod, 0, None).round(2),
+            "electricity_kwh": rng.normal(12000, 800, len(ts)).round(2),
+            "gas_m3": rng.normal(1600, 200, len(ts)).round(2),
+            "production_ton": rng.normal(400, 25, len(ts)).round(2),
         })
-        # 간단한 배출량 계산(엔진 내장)
         df["co2e_kg"] = df["electricity_kwh"]*0.475 + df["gas_m3"]*2.0
-        df["pcf_kg_per_ton"] = df["co2e_kg"] / df["production_ton"].replace(0, np.nan)
-
-        target.write_text(df.to_csv(index=False), encoding="utf-8")
-        return df
+        df["pcf_kg_per_ton"] = df["co2e_kg"] / df["production_ton"]
+        df.to_csv(path, index=False)
     else:
-        df = pd.read_csv(target, parse_dates=["timestamp"])
-        # 안전장치: 필요한 파생컬럼 없으면 생성
+        df = pd.read_csv(path, parse_dates=["timestamp"])
         if "co2e_kg" not in df.columns:
             df["co2e_kg"] = df["electricity_kwh"]*0.475 + df["gas_m3"]*2.0
         if "pcf_kg_per_ton" not in df.columns:
-            df["pcf_kg_per_ton"] = df["co2e_kg"] / df["production_ton"].replace(0, np.nan)
-        return df
+            df["pcf_kg_per_ton"] = df["co2e_kg"]/df["production_ton"]
+    return df
 
-# ─────────────────────────────────────────────────────────
-# 간단 예측(외부 라이브러리 없이): 이동평균 + 계절성 보정
-def naive_forecast(series: pd.Series, periods: int, freq: str, seasonal_periods: int | None = None) -> pd.Series:
-    """단순 이동평균/계절성 평균 기반 예측. statsmodels/prophet 없이 구동."""
-    series = series.dropna()
-    if series.empty:
-        return pd.Series(dtype=float)
+df = load_data()
 
-    # 계절성 평균 사용(있으면)
-    if seasonal_periods and len(series) >= seasonal_periods:
-        base = series.tail(seasonal_periods).mean()
-    else:
-        base = series.tail(min(168, len(series))).mean()  # 최대 1주(시간 기준) 이동평균
+# ---------- 사이드바 ----------
+st.sidebar.header("Settings")
+date_min, date_max = df["timestamp"].min().date(), df["timestamp"].max().date()
+date_range = st.sidebar.date_input("Date range", [date_min, date_max], min_value=date_min, max_value=date_max)
+agg = st.sidebar.selectbox("Aggregation", ["Daily", "Monthly"], index=0)
+show_table = st.sidebar.checkbox("Show raw data", False)
 
-    last_ts = series.index[-1]
-    if freq == "H":
-        idx = pd.date_range(last_ts + pd.Timedelta(hours=1), periods=periods, freq="H")
-    else:
-        idx = pd.date_range(last_ts + pd.Timedelta(days=1), periods=periods, freq="D")
+# ---------- 필터 ----------
+if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+    start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+    df = df[(df["timestamp"] >= start) & (df["timestamp"] <= end)]
 
-    return pd.Series(np.full(len(idx), base), index=idx)
-
-# ─────────────────────────────────────────────────────────
-# 메인
-def main():
-    render_header()
-
-    df = load_or_seed().sort_values("timestamp").copy()
-
-    # ─ Sidebar
-    st.sidebar.header("Settings")
-    agg = st.sidebar.selectbox("Aggregation", ["Hourly", "Daily"], index=1)
-    horizon_days = st.sidebar.slider("Forecast horizon (days)", 3, 30, 7)
-    show_table = st.sidebar.checkbox("Show raw data", value=False)
-
-    date_min, date_max = df["timestamp"].min().date(), df["timestamp"].max().date()
-    date_range = st.sidebar.date_input("Date range", [date_min, date_max], min_value=date_min, max_value=date_max)
-
-    # 필터
-    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-        start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
-        df = df[(df["timestamp"] >= start) & (df["timestamp"] < end)]
-
-    # 집계
-    plot_df = df.copy()
-    if agg == "Daily":
-        plot_df = (
-            plot_df.set_index("timestamp")
-            .resample("D")
-            .agg({"co2e_kg": "sum", "electricity_kwh": "sum", "gas_m3": "sum", "production_ton": "sum"})
-            .reset_index()
-        )
-
-    # ─ KPI
-    total_co2e = plot_df["co2e_kg"].sum()
-    avg_co2e = plot_df["co2e_kg"].mean()
-    total_prod = plot_df["production_ton"].sum()
-    avg_pcf = (plot_df["co2e_kg"].sum() / total_prod) if total_prod and not np.isnan(total_prod) else np.nan
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total CO₂e", f"{total_co2e:,.0f} kg")
-    k2.metric("Avg CO₂e", f"{avg_co2e:,.2f} kg/{agg.lower()}")
-    k3.metric("Avg PCF", "N/A" if np.isnan(avg_pcf) else f"{avg_pcf:,.2f} kg/ton")
-    k4.metric("Period", f"{plot_df['timestamp'].min().date()} → {plot_df['timestamp'].max().date()}")
-
-    # ─ 그래프 1: CO₂e 추이
-    st.subheader(f"Time series — CO₂e (kg) [{agg}]")
-    fig1, ax1 = plt.subplots(figsize=(10, 3))
-    ax1.plot(plot_df["timestamp"], plot_df["co2e_kg"])
-    ax1.set_xlabel("timestamp")
-    ax1.set_ylabel("kg CO₂e")
-    ax1.grid(True, linestyle="--", alpha=0.3)
-    st.pyplot(fig1)
-
-    # ─ 그래프 2: 전력/가스 추이
-    st.subheader("Electricity vs Gas")
-    fig2, ax2 = plt.subplots(figsize=(10, 3))
-    ax2.plot(plot_df["timestamp"], plot_df["electricity_kwh"], label="Electricity (kWh)")
-    ax2.plot(plot_df["timestamp"], plot_df["gas_m3"], label="Gas (m³)")
-    ax2.set_xlabel("timestamp")
-    ax2.grid(True, linestyle="--", alpha=0.3)
-    ax2.legend()
-    st.pyplot(fig2)
-
-    # ─ 예측: 이동평균 기반
-    st.subheader("Forecast — CO₂e (naive)")
-    freq = "H" if agg == "Hourly" else "D"
-    periods = horizon_days * (24 if freq == "H" else 1)
-    hist = plot_df.set_index("timestamp")["co2e_kg"]
-    seasonal_periods = 24 if freq == "H" else 7  # 일/주기준
-    fcst = naive_forecast(hist, periods=periods, freq=freq, seasonal_periods=seasonal_periods)
-
-    fig3, ax3 = plt.subplots(figsize=(10, 3))
-    ax3.plot(hist.index, hist.values, label="History")
-    ax3.plot(fcst.index, fcst.values, label=f"Forecast (+{horizon_days}d)")
-    ax3.set_xlabel("timestamp")
-    ax3.set_ylabel("kg CO₂e")
-    ax3.grid(True, linestyle="--", alpha=0.3)
-    ax3.legend()
-    st.pyplot(fig3)
-
-    # ─ 데이터 테이블 & 다운로드
-    st.subheader("Sample rows")
-    st.dataframe(plot_df.head(50), use_container_width=True)
-
-    st.download_button(
-        "📥 Download filtered CSV",
-        data=plot_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="greenopt_filtered.csv",
-        mime="text/csv",
+if agg == "Monthly":
+    df = (
+        df.set_index("timestamp")
+        .resample("M")
+        .agg({"electricity_kwh":"sum","gas_m3":"sum","production_ton":"sum","co2e_kg":"sum"})
+        .reset_index()
     )
 
-    st.markdown(
-        "<p style='text-align:center;color:#666;font-size:0.8rem;margin-top:1rem;'>© 2025 GreenOpt — ESG·AI Data Intelligence Platform</p>",
-        unsafe_allow_html=True,
-    )
+# ---------- KPI ----------
+total = df["co2e_kg"].sum()
+avg = df["co2e_kg"].mean()
+avg_pcf = (df["co2e_kg"].sum() / df["production_ton"].sum())
+col1, col2, col3 = st.columns(3)
+col1.metric("Total CO₂e", f"{total:,.0f} kg")
+col2.metric("Avg CO₂e", f"{avg:,.2f} kg/{agg.lower()}")
+col3.metric("Avg PCF", f"{avg_pcf:,.2f} kg/ton")
 
-if __name__ == "__main__":
-    main()
+# ---------- Tabs ----------
+tabs = st.tabs(["📊 Dashboard", "🤖 AI Forecast", "🧩 Optimization", "🧮 Scenario Simulator", "📤 Catena-X Export"])
 
+# ---------- 1. Dashboard ----------
+with tabs[0]:
+    st.markdown("### CO₂e Emission Trend")
+    fig = px.line(df, x="timestamp", y="co2e_kg", template="plotly_dark", title=f"CO₂e ({agg})")
+    fig.update_traces(line=dict(color="#00FFAA", width=3))
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Energy Breakdown")
+    fig2 = px.line(df, x="timestamp", y=["electricity_kwh","gas_m3"], template="plotly_dark", title="Electricity & Gas Use")
+    fig2.update_traces(line=dict(width=2))
+    st.plotly_chart(fig2, use_container_width=True)
+
+    if show_table:
+        st.dataframe(df.tail(50), use_container_width=True, height=400)
+
+# ---------- 2. AI Forecast ----------
+with tabs[1]:
+    st.markdown("### 🔮 AI Forecast (Moving Average Model)")
+    horizon = st.slider("Forecast horizon (days)", 7, 60, 14)
+    df = df.set_index("timestamp")
+    hist = df["co2e_kg"]
+    ma = hist.rolling(window=7, min_periods=1).mean()
+    forecast_idx = pd.date_range(hist.index[-1] + pd.Timedelta(days=1), periods=horizon)
+    forecast_values = np.full(len(forecast_idx), ma.iloc[-1])
+    forecast = pd.Series(forecast_values, index=forecast_idx)
+    fig3 = px.line(template="plotly_dark")
+    fig3.add_scatter(x=hist.index, y=hist.values, mode="lines", name="History", line=dict(color="#00FFAA"))
+    fig3.add_scatter(x=forecast.index, y=forecast.values, mode="lines", name="Forecast", line=dict(color="#00BFFF", dash="dot"))
+    fig3.update_layout(title=f"{horizon}-Day Forecast", xaxis_title="Date", yaxis_title="kg CO₂e")
+    st.plotly_chart(fig3, use_container_width=True)
+
+# ---------- 3. Optimization ----------
+with tabs[2]:
+    st.markdown("### ⚙️ Lagrange Optimization — Efficiency vs Emission")
+    production_target = st.number_input("Production target (tons)", 300.0, 600.0, 400.0)
+    def f(x):  # 목적함수: 배출량 최소화
+        electricity, gas = x
+        return 0.475*electricity + 2.0*gas
+    def constraint(x):
+        electricity, gas = x
+        return production_target - (0.002*electricity + 0.005*gas)
+    res = minimize(f, [10000, 2000], constraints={'type': 'eq', 'fun': constraint})
+    opt_elec, opt_gas = res.x
+    st.success(f"✅ 최적 전력: {opt_elec:,.0f} kWh / 최적 가스: {opt_gas:,.0f} m³")
+    st.metric("예상 배출량", f"{f(res.x):,.2f} kg CO₂e")
+
+# ---------- 4. Scenario Simulator ----------
+with tabs[3]:
+    st.markdown("### 🧮 Scenario Simulation")
+    eff = st.slider("전력 효율 개선 (%)", -20, 20, 0)
+    gas_eff = st.slider("가스 절감률 (%)", -20, 20, 0)
+    df_sim = df.copy()
+    df_sim["electricity_kwh"] *= (1 - eff/100)
+    df_sim["gas_m3"] *= (1 - gas_eff/100)
+    df_sim["co2e_kg"] = df_sim["electricity_kwh"]*0.475 + df_sim["gas_m3"]*2.0
+    change = ((df_sim["co2e_kg"].sum() - df["co2e_kg"].sum())/df["co2e_kg"].sum())*100
+    st.metric("총 배출 변화율", f"{change:+.2f}%")
+    fig4 = px.line(df_sim.reset_index(), x="timestamp", y="co2e_kg", template="plotly_dark",
+                   title="Scenario-adjusted CO₂e", line_shape="spline")
+    fig4.update_traces(line_color="#00FFAA")
+    st.plotly_chart(fig4, use_container_width=True)
+
+# ---------- 5. Catena-X JSON Export ----------
+with tabs[4]:
+    st.markdown("### 📤 Catena-X / DPP JSON Export")
+    sample = {
+        "product_id": "GREENOPT-SAMPLE-001",
+        "timestamp": str(pd.Timestamp.now()),
+        "scope1_kg": float(df["gas_m3"].sum()*2.0),
+        "scope2_kg": float(df["electricity_kwh"].sum()*0.475),
+        "total_kg": float(df["co2e_kg"].sum()),
+        "unit": "kg CO2e",
+        "format": "Catena-X JSON (v1.0)",
+    }
+    json_text = json.dumps(sample, indent=2)
+    st.code(json_text, language="json")
+    st.download_button("💾 Download JSON", json_text, file_name="greenopt_catenaX.json")
+
+# ---------- Footer ----------
+st.markdown(
+    "<p style='text-align:center;color:#777;font-size:0.8rem;margin-top:1rem;'>© 2025 GreenOpt — ESG·AI Digital Engine</p>",
+    unsafe_allow_html=True,
+)
