@@ -1,6 +1,6 @@
 # =====================================================
 # GreenOpt — Digital ESG Engine (FINAL • All-in-One • Ultra-Dark)
-# All text white • All backgrounds dark • Full-range charts
+# All text white • All backgrounds dark • Full-range charts (3y)
 # STL(optional) • Anomaly • Forecast • Optimization • Pricing
 # Partner Hub • PDF Export
 # =====================================================
@@ -66,7 +66,7 @@ def apply_theme():
         background: {BG2} !important; color: {TXT} !important; border:1px solid {BORDER} !important;
     }}
 
-    /* ===== BUTTONS ===== */
+    /* ===== BUTTONS (primary/secondary) ===== */
     .stButton button, [data-baseweb="button"] {{
         background: #1e293b !important;
         color: {TXT} !important;
@@ -75,6 +75,25 @@ def apply_theme():
     }}
     .stButton button:hover, [data-baseweb="button"]:hover {{
         background: {GREEN} !important; color: {TXT} !important;
+    }}
+
+    /* ===== Download button / secondary buttons: 강제 다크 ===== */
+    [data-testid="stDownloadButton"] > button,
+    button[kind="secondary"],
+    [data-testid="baseButton-secondary"],
+    [data-testid="baseButton-secondaryFormSubmit"] {{
+        background: {BG2} !important;
+        color: {TXT} !important;
+        border: 1px solid {BORDER} !important;
+        border-radius: 10px !important;
+    }}
+    [data-testid="stDownloadButton"] > button:hover,
+    button[kind="secondary"]:hover,
+    [data-testid="baseButton-secondary"]:hover,
+    [data-testid="baseButton-secondaryFormSubmit"]:hover {{
+        background: {GREEN} !important;
+        color: {TXT} !important;
+        border-color: {GREEN} !important;
     }}
 
     /* ===== FILE UPLOADER (force dark) ===== */
@@ -153,6 +172,7 @@ def apply_theme():
         border-bottom-left-radius:12px !important; border-bottom-right-radius:12px !important;
         color:{TXT} !important; padding:12px 10px !important;
     }}
+    .stTabs [role="tab"], .stTabs [role="tab"] * {{ color:{TXT} !important; }}
 
     /* ===== TABLES / METRICS ===== */
     [data-testid="stStyledTable"] thead th {{ background:#0f172a !important; color:{TXT} !important; }}
@@ -312,7 +332,8 @@ with st.sidebar:
     product_opts = sorted(pd.Series(df["product"]).dropna().unique().tolist())
     sel_products = st.multiselect("Product", product_opts) if product_opts else []
 
-    rule = st.selectbox("Time granularity", ["H","D","W","M"], index=1)
+    # ✅ 기본값을 월간(M)으로 (3년 보기 쉬움)
+    rule = st.selectbox("Time granularity", ["H","D","W","M"], index=3)
 
     st.header("External Features")
     aux = st.file_uploader("AUX CSV (timestamp, temperature_c, utilization_pct ...)", type=["csv"], key="aux")
@@ -350,12 +371,6 @@ if sel_span == 0 or sel_span < max(1, int(full_span * 0.30)):
     df_f = df.copy()
 
 # ---------- Carbon + Resample ----------
-def add_carbon_columns(df_in: pd.DataFrame, ef_elec: float) -> pd.DataFrame:
-    out = df_in.copy()
-    out["co2e_kg"] = out["electricity_kwh"]*ef_elec + out["gas_m3"]*EMISSION_FACTOR_GAS
-    out["pcf_kg_per_ton"] = np.where(out["production_ton"]>0, out["co2e_kg"]/out["production_ton"], np.nan)
-    return out
-
 df_c = add_carbon_columns(df_f, ef_elec_input)
 df_g = resample_df(df_c, rule)
 
@@ -367,14 +382,15 @@ last_val = df_g["co2e_kg"].iloc[-1] if not df_g.empty else 0.0
 c3.metric(f"Last {rule} CO₂e (kg)", f"{last_val:,.1f}")
 c4.metric("Periods", f"{len(df_g):,}")
 
-# ---------- Main Chart ----------
+# ---------- Main Chart (ALWAYS FULL RANGE of original df) ----------
 st.subheader("Time-series overview")
 if not df_g.empty:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines",
                              name="CO₂e (kg)", line=dict(color=GREEN, width=2.4)))
-    x_range = [df_f["timestamp"].min(), df_f["timestamp"].max()]
-    st.plotly_chart(style_fig(fig, x_range=x_range), use_container_width=True)
+    # ✅ X축 범위를 원본 df 전체 기간으로 고정 (항상 3년 전체가 펼쳐짐)
+    x_range_full = [df["timestamp"].min(), df["timestamp"].max()]
+    st.plotly_chart(style_fig(fig, x_range=x_range_full), use_container_width=True)
 else:
     st.warning("No data in selected range.")
 
