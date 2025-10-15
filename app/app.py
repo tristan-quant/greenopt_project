@@ -43,7 +43,7 @@ def apply_theme():
     [data-testid="stMarkdown"], [data-testid="stMarkdownContainer"], [data-testid="stText"] {{
         color: {TXT} !important;
     }}
-    * {{ color: {TXT}; }}  /* fallback: absolutely all text */
+    * {{ color: {TXT}; }}
 
     a, a:link, a:visited {{ color: {GREEN} !important; text-decoration: none !important; }}
     a:hover {{ text-decoration: underline !important; }}
@@ -55,7 +55,7 @@ def apply_theme():
     }}
     [data-testid="stSidebar"] * {{ color: {TXT} !important; }}
 
-    /* ===== INPUTS (text/number/date/select/textarea) ===== */
+    /* ===== INPUTS ===== */
     .stTextInput input, .stNumberInput input, .stDateInput input, select, textarea {{
         background: {BG2} !important;
         color: {TXT} !important;
@@ -77,7 +77,7 @@ def apply_theme():
         background: {GREEN} !important; color: {TXT} !important;
     }}
 
-    /* ===== Download button / secondary buttons: 강제 다크 ===== */
+    /* ===== Download & Secondary buttons: 강제 다크 ===== */
     [data-testid="stDownloadButton"] > button,
     button[kind="secondary"],
     [data-testid="baseButton-secondary"],
@@ -96,7 +96,7 @@ def apply_theme():
         border-color: {GREEN} !important;
     }}
 
-    /* ===== FILE UPLOADER (force dark) ===== */
+    /* ===== FILE UPLOADER ===== */
     [data-testid="stFileUploader"], [data-testid="stFileUploader"] * {{
       color: {TXT} !important;
     }}
@@ -180,13 +180,12 @@ def apply_theme():
     [data-testid="stTable"] th, [data-testid="stTable"] td {{ color:{TXT} !important; background:{BG2} !important; border-color:{BORDER} !important; }}
     [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT} !important; }}
 
-    /* ===== PLOTLY TOOLBAR 看やすく ===== */
+    /* ===== PLOTLY TOOLBAR ===== */
     .modebar {{ filter: invert(1) !important; }}
     </style>
     """, unsafe_allow_html=True)
 
 def style_fig(fig: go.Figure, x_range=None) -> go.Figure:
-    """모든 그래프에 흰색 라벨/주석 & 어두운 배경 적용"""
     fig.update_layout(
         paper_bgcolor=BG, plot_bgcolor=BG,
         font=dict(color=TXT),
@@ -304,7 +303,6 @@ with st.sidebar:
     tmin_all = df["timestamp"].min().date()
     tmax_all = df["timestamp"].max().date()
 
-    # Range mode 기본/보정
     if "range_mode_key" not in st.session_state:
         st.session_state["range_mode_key"] = "All data"
     if st.session_state["range_mode_key"] not in ("All data","Custom"):
@@ -326,13 +324,12 @@ with st.sidebar:
         start_date, end_date = tmin_all, tmax_all
         st.session_state.pop("custom_date_range_key", None)
 
-    # 안전한 옵션 생성
     line_opts = sorted(pd.Series(df["line"]).dropna().unique().tolist())
     sel_lines = st.multiselect("Line", line_opts) if line_opts else []
     product_opts = sorted(pd.Series(df["product"]).dropna().unique().tolist())
     sel_products = st.multiselect("Product", product_opts) if product_opts else []
 
-    # ✅ 기본값을 월간(M)으로 (3년 보기 쉬움)
+    # 기본값 월간(M): 3년 보기 좋음
     rule = st.selectbox("Time granularity", ["H","D","W","M"], index=3)
 
     st.header("External Features")
@@ -364,7 +361,7 @@ if sel_products:
     df_f = df_f[df_f["product"].isin(sel_products)]
 df_f = df_f.sort_values("timestamp").reset_index(drop=True)
 
-# 안전장치: 선택 범위가 전체의 30% 미만이면 자동으로 전체로
+# 선택 범위가 너무 짧으면 자동 전체로
 full_span = (df["timestamp"].max() - df["timestamp"].min()).days + 1
 sel_span  = (df_f["timestamp"].max() - df_f["timestamp"].min()).days + 1 if not df_f.empty else 0
 if sel_span == 0 or sel_span < max(1, int(full_span * 0.30)):
@@ -385,12 +382,30 @@ c4.metric("Periods", f"{len(df_g):,}")
 # ---------- Main Chart (ALWAYS FULL RANGE of original df) ----------
 st.subheader("Time-series overview")
 if not df_g.empty:
+    y = df_g["co2e_kg"].astype(float)
+    x = pd.to_datetime(df_g["timestamp"])
+
+    # 포인트 수에 따라 모드 자동 결정 (1개면 markers, 그 이상은 lines+markers)
+    trace_mode = "lines+markers" if len(df_g) >= 2 else "markers"
+
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines",
-                             name="CO₂e (kg)", line=dict(color=GREEN, width=2.4)))
-    # ✅ X축 범위를 원본 df 전체 기간으로 고정 (항상 3년 전체가 펼쳐짐)
-    x_range_full = [df["timestamp"].min(), df["timestamp"].max()]
-    st.plotly_chart(style_fig(fig, x_range=x_range_full), use_container_width=True)
+    fig.add_trace(go.Scatter(
+        x=x, y=y,
+        mode=trace_mode,
+        name="CO₂e (kg)",
+        line=dict(color=GREEN, width=2.4),
+        marker=dict(size=6, color=GREEN)
+    ))
+
+    # X축을 원본 df 전체 기간으로 고정 (min==max이면 생략)
+    xmin = pd.to_datetime(df["timestamp"].min())
+    xmax = pd.to_datetime(df["timestamp"].max())
+    if pd.notna(xmin) and pd.notna(xmax) and xmin < xmax:
+        fig = style_fig(fig, x_range=[xmin, xmax])
+    else:
+        fig = style_fig(fig)
+
+    st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("No data in selected range.")
 
