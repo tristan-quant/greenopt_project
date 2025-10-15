@@ -1,7 +1,8 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (FINAL • All-in-One)
-# Dark UI • Full-range charts • Forecast • STL(optional)
-# Anomaly • Optimization • Carbon Pricing • Partner Hub • PDF
+# GreenOpt — Digital ESG Engine (FINAL • All-in-One • Dark)
+# Dark UI (all text white) • Full-range charts • Forecast
+# STL(optional) • Anomaly • Optimization • Carbon Pricing
+# Partner Hub • PDF Export
 # =====================================================
 from __future__ import annotations
 from pathlib import Path
@@ -21,77 +22,142 @@ from reportlab.pdfgen import canvas
 # ---------- Page ----------
 st.set_page_config(page_title="GreenOpt — Carbon Intelligence Platform", layout="wide")
 
-# ---------- Theme (Dark + Green) ----------
-BG   = "#0B0E11"
+# ---------- Theme (Dark + White Text) ----------
+BG   = "#0b0e11"
 BG2  = "#111827"
-TXT  = "#F3F4F6"
-GRID = "#1F2937"
-GREEN= "#22C55E"
+TXT  = "#ffffff"
+GRID = "#1f2937"
+BORDER = "#374151"
+GREEN= "#22c55e"
+RED  = "#ef4444"
 
 def apply_theme():
     st.markdown(f"""
     <style>
-      .stApp {{ background:{BG}!important; color:{TXT}!important; }}
-      [data-testid="stHeader"] {{ background: transparent; }}
+    /* ===== GLOBAL ===== */
+    .stApp, .block-container, body {{
+        background-color: {BG} !important;
+        color: {TXT} !important;
+    }}
+    [data-testid="stHeader"] {{ background: transparent !important; }}
+    [data-testid="stMarkdownContainer"], [data-testid="stText"], [data-testid="stMarkdown"] {{
+        color: {TXT} !important;
+    }}
+    a, a:link, a:visited {{ color: {GREEN} !important; text-decoration: none !important; }}
+    a:hover {{ text-decoration: underline !important; }}
 
-      /* Sidebar */
-      [data-testid="stSidebar"] {{ background:{BG2}!important; color:{TXT}!important; }}
-      [data-testid="stSidebar"] * {{ color:{TXT}!important; }}
+    /* ===== SIDEBAR ===== */
+    [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
+        background-color: {BG2} !important;
+        color: {TXT} !important;
+    }}
+    [data-testid="stSidebar"] * {{ color: {TXT} !important; }}
 
-      /* FileUploader */
-      [data-testid="stFileUploaderDropzone"] {{
-        background:{BG2}!important; border:1px dashed #374151!important; color:{TXT}!important;
-      }}
-      [data-testid="stFileUploader"] button,
-      [data-testid="stFileUploader"] [role="button"] {{
-        background:{BG2}!important; color:{TXT}!important; border:1px solid #374151!important;
-      }}
+    /* ===== INPUTS ===== */
+    .stTextInput input, .stNumberInput input, .stDateInput input, select, textarea {{
+        background-color: {BG2} !important;
+        color: {TXT} !important;
+        border: 1px solid {BORDER} !important;
+        border-radius: 10px !important;
+    }}
+    div[data-baseweb="select"] > div {{ background-color: {BG2} !important; color: {TXT} !important; border:1px solid {BORDER} !important; }}
 
-      /* Inputs */
-      .stTextInput input, .stNumberInput input, .stDateInput input {{
-        background:{BG2}!important; color:{TXT}!important; border:1px solid #374151!important;
-      }}
-      div[data-baseweb="select"] > div {{ background:{BG2}!important; color:{TXT}!important; }}
+    /* ===== BUTTONS ===== */
+    .stButton button, [data-baseweb="button"] {{
+        background-color: #1e293b !important;
+        color: {TXT} !important;
+        border: 1px solid {BORDER} !important;
+        border-radius: 10px !important;
+    }}
+    .stButton button:hover, [data-baseweb="button"]:hover {{
+        background-color: {GREEN} !important;
+        color: {TXT} !important;
+    }}
 
-      /* NumberInput ± buttons (dark + red/green) */
-      .stNumberInput div[role="group"], .stNumberInput div[data-baseweb="button-group"] {{
-        background:{BG2}!important;
-      }}
-      .stNumberInput [data-baseweb="button"] {{ background:{BG2}!important; color:{TXT}!important; }}
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child {{ border:1px solid #EF4444!important; }}
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child  {{ border:1px solid {GREEN}!important; }}
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child svg,
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child svg * {{ fill:#EF4444!important; stroke:#EF4444!important; }}
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child svg,
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child svg *  {{ fill:{GREEN}!important; stroke:{GREEN}!important; }}
+    /* ===== NumberInput: ± 버튼 완전 강제 ===== */
+    .stNumberInput div[data-baseweb="input"], .stNumberInput input {{
+        background:{BG2} !important; color:{TXT} !important;
+        border:1px solid {BORDER} !important; border-radius:10px !important;
+    }}
+    .stNumberInput div[role="group"], .stNumberInput div[data-baseweb="button-group"] {{
+        background:{BG2} !important;
+    }}
+    .stNumberInput [data-baseweb="button"], .stNumberInput button {{
+        background:{BG2} !important; color:{TXT} !important; box-shadow:none !important; border-radius:8px !important;
+    }}
+    /* 감소(-) 빨강 */
+    .stNumberInput button[aria-label="Decrease value"],
+    .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child {{
+        border:1px solid {RED} !important;
+    }}
+    .stNumberInput button[aria-label="Decrease value"]:hover,
+    .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child:hover {{
+        background:rgba(239,68,68,.15) !important;
+        box-shadow:0 0 0 2px rgba(239,68,68,.25) !important;
+    }}
+    .stNumberInput button[aria-label="Decrease value"] svg,
+    .stNumberInput button[aria-label="Decrease value"] svg * {{
+        fill:{RED} !important; stroke:{RED} !important;
+    }}
+    /* 증가(+) 초록 */
+    .stNumberInput button[aria-label="Increase value"],
+    .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child {{
+        border:1px solid {GREEN} !important;
+    }}
+    .stNumberInput button[aria-label="Increase value"]:hover,
+    .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child:hover {{
+        background:rgba(34,197,94,.15) !important;
+        box-shadow:0 0 0 2px rgba(34,197,94,.25) !important;
+    }}
+    .stNumberInput button[aria-label="Increase value"] svg,
+    .stNumberInput button[aria-label="Increase value"] svg * {{
+        fill:{GREEN} !important; stroke:{GREEN} !important;
+    }}
+    .stNumberInput input:focus {{
+        outline:none !important; border-color:{GREEN} !important; box-shadow:0 0 0 2px rgba(34,197,94,.35) !important;
+    }}
 
-      /* Tabs (full dark) */
-      .stTabs [role="tablist"] {{ border-bottom:1px solid #374151!important; }}
-      .stTabs [data-baseweb="tab"] {{
-        background:{BG2}!important; color:{TXT}!important; border:1px solid #374151!important;
-        border-bottom:none!important; margin-right:6px!important; border-top-left-radius:10px!important; border-top-right-radius:10px!important;
-      }}
-      .stTabs [data-baseweb="tab"][aria-selected="true"] {{ background:#0F172A!important; border-color:{GREEN}!important; }}
-      .stTabs [data-baseweb="tab"]:hover {{ background:rgba(34,197,94,.10)!important; }}
-      .stTabs div[role="tabpanel"] {{
-        background:{BG2}!important; border:1px solid #374151!important; border-top:none!important;
-        border-bottom-left-radius:12px!important; border-bottom-right-radius:12px!important; padding: 12px 10px!important;
-      }}
+    /* ===== TABS ===== */
+    .stTabs [data-baseweb="tab"] {{
+        background-color: {BG2} !important; color: {TXT} !important;
+        border:1px solid {BORDER} !important; border-bottom:none !important; margin-right:6px !important;
+        border-top-left-radius:10px !important; border-top-right-radius:10px !important;
+    }}
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {{
+        background-color:#0f172a !important; border-color:{GREEN} !important;
+    }}
+    .stTabs div[role="tabpanel"] {{
+        background-color:{BG2} !important; border:1px solid {BORDER} !important; border-top:none !important;
+        border-bottom-left-radius:12px !important; border-bottom-right-radius:12px !important; color:{TXT} !important;
+        padding: 12px 10px !important;
+    }}
 
-      /* Dropdown popover menus */
-      div[role="listbox"], ul[role="listbox"] {{ background:{BG2}!important; color:{TXT}!important; border:1px solid #374151!important; }}
-      [role="option"] {{ background:{BG2}!important; color:{TXT}!important; }}
-      [role="option"][aria-selected="true"], [role="option"]:hover {{ background:rgba(34,197,94,.12)!important; }}
+    /* ===== TABLES ===== */
+    [data-testid="stStyledTable"] thead th {{ background:#0f172a !important; color:{TXT} !important; }}
+    [data-testid="stStyledTable"] tbody td {{ background:{BG2} !important; color:{TXT} !important; border-color:{GRID} !important; }}
+    [data-testid="stTable"] th, [data-testid="stTable"] td {{ color:{TXT} !important; background:{BG2} !important; border-color:{BORDER} !important; }}
 
-      /* Expanders / Tables / Metrics */
-      [data-testid="stExpander"] summary,
-      [data-testid="stExpander"] details {{ background:{BG2}!important; color:{TXT}!important; border:1px solid #374151!important; border-radius:10px!important; }}
-      [data-testid="stStyledTable"] thead th {{ background:#0F172A!important; color:{TXT}!important; }}
-      [data-testid="stStyledTable"] tbody td {{ background:{BG2}!important; color:{TXT}!important; border-color:#1F2937!important; }}
-      [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT}!important; }}
-      a {{ color:{GREEN}; }}
+    /* ===== METRICS ===== */
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT} !important; }}
+
+    /* ===== PLOTLY TOOLBAR 가시성 ===== */
+    .modebar {{ filter: invert(1) !important; }}
     </style>
     """, unsafe_allow_html=True)
+
+def style_fig(fig: go.Figure, x_range=None) -> go.Figure:
+    """모든 그래프에 흰색 라벨/주석 & 어두운 배경 적용"""
+    fig.update_layout(
+        paper_bgcolor=BG, plot_bgcolor=BG,
+        font=dict(color=TXT),
+        title_font=dict(color=TXT),
+        legend_font=dict(color=TXT),
+    )
+    fig.update_xaxes(color=TXT, gridcolor=GRID, zerolinecolor=BORDER)
+    fig.update_yaxes(color=TXT, gridcolor=GRID, zerolinecolor=BORDER)
+    if x_range is not None:
+        fig.update_xaxes(range=x_range)
+    return fig
 
 apply_theme()
 
@@ -121,7 +187,6 @@ def load_data(path: Path) -> pd.DataFrame:
             "electricity_kwh": rng.uniform(80, 220, periods),
             "gas_m3": rng.uniform(8, 35, periods),
             "production_ton": rng.uniform(4, 18, periods),
-            # line/product가 없는 CSV도 많으므로 샘플엔 넣어두지만, 실제 처리에선 optional로 취급
             "line": rng.choice(["A-Line","B-Line","C-Line"], periods, p=[0.4,0.4,0.2]),
             "product": rng.choice(["Widget-X","Widget-Y","Widget-Z"], periods),
         })
@@ -172,7 +237,7 @@ with st.sidebar:
         df = load_data(DEFAULT_CSV)
         st.info("Loaded default / generated sample data.")
 
-    # ---- 필수/선택 컬럼 검사 (line/product는 선택) ----
+    # 필수/선택 컬럼 (line/product는 선택)
     base_required = {"timestamp","electricity_kwh","gas_m3","production_ton"}
     missing_base = base_required - set(df.columns)
     if missing_base:
@@ -200,13 +265,24 @@ with st.sidebar:
     st.header("Filters")
     tmin_all = df["timestamp"].min().date()
     tmax_all = df["timestamp"].max().date()
-    range_mode = st.radio("Range mode", ["All data","Custom"], horizontal=True, index=0)
+
+    # 세션 키로 Range 상태 관리 + 전체 리셋 제공
+    range_mode = st.radio("Range mode", ["All data","Custom"], horizontal=True, index=0, key="range_mode_key")
     if range_mode == "Custom":
-        start_date, end_date = st.date_input("Date range", value=(tmin_all,tmax_all),
-                                             min_value=tmin_all, max_value=tmax_all,
-                                             key="custom_date_range_key")
+        start_date, end_date = st.date_input(
+            "Date range", value=(tmin_all, tmax_all),
+            min_value=tmin_all, max_value=tmax_all,
+            key="custom_date_range_key"
+        )
+        if st.button("Reset to full range", use_container_width=True):
+            st.session_state["range_mode_key"] = "All data"
+            if "custom_date_range_key" in st.session_state:
+                del st.session_state["custom_date_range_key"]
+            st.experimental_rerun()
     else:
         start_date, end_date = tmin_all, tmax_all
+        if "custom_date_range_key" in st.session_state:
+            del st.session_state["custom_date_range_key"]
 
     # 안전한 옵션 생성
     line_opts = sorted(pd.Series(df["line"]).dropna().unique().tolist())
@@ -263,11 +339,9 @@ st.subheader("Time-series overview")
 if not df_g.empty:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines",
-                             name="CO₂e (kg)", line=dict(color=GREEN, width=2.3)))
-    fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TXT)
-    fig.update_xaxes(range=[df_g["timestamp"].min(), df_g["timestamp"].max()], gridcolor=GRID)
-    fig.update_yaxes(gridcolor=GRID)
-    st.plotly_chart(fig, use_container_width=True)
+                             name="CO₂e (kg)", line=dict(color=GREEN, width=2.4)))
+    x_range = [df_g["timestamp"].min(), df_g["timestamp"].max()]
+    st.plotly_chart(style_fig(fig, x_range=x_range), use_container_width=True)
 else:
     st.warning("No data in selected range.")
 
@@ -289,8 +363,7 @@ def section_stl(df_g: pd.DataFrame):
             fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend", line=dict(color=GREEN)))
             fig.add_trace(go.Scatter(x=stl.seasonal.index, y=stl.seasonal.values, name="Seasonal"))
             fig.add_trace(go.Scatter(x=stl.resid.index, y=stl.resid.values, name="Residual"))
-            fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TXT, title="STL Components")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_fig(fig), use_container_width=True)
         except Exception as e:
             st.info(f"STL skipped: {e}")
 
@@ -312,8 +385,7 @@ def section_anomaly(df_g: pd.DataFrame):
         aa = v[v["anomaly"]]
         fig.add_trace(go.Scatter(x=aa["timestamp"], y=aa["co2e_kg"], mode="markers",
                                  name="Anomaly", marker=dict(size=8, symbol="x", color="#FCA5A5")))
-        fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TXT, title="Anomaly detection")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ---------- Forecast (light) ----------
 def section_forecast(df_g: pd.DataFrame):
@@ -335,15 +407,14 @@ def section_forecast(df_g: pd.DataFrame):
         gbr = GradientBoostingRegressor(random_state=42).fit(X_tr, y_tr)
         pred = gbr.predict(X_te)
         mae = mean_absolute_error(y_te, pred)
-        a,b = st.columns(2)
-        a.metric("MAE", f"{mae:,.2f}")
-        b.metric("Last pred", f"{pred[-1]:,.2f}")
+        m1,m2 = st.columns(2)
+        m1.metric("MAE", f"{mae:,.2f}")
+        m2.metric("Last pred", f"{pred[-1]:,.2f}")
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=tr["timestamp"], y=tr["co2e_kg"], name="Train"))
         fig.add_trace(go.Scatter(x=te["timestamp"], y=y_te, name="Actual"))
         fig.add_trace(go.Scatter(x=te["timestamp"], y=pred, name="Forecast", line=dict(color=GREEN, width=2.2)))
-        fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TXT)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
         st.session_state["pred_series"] = pd.Series(pred, index=te["timestamp"])
 
 # ---------- Optimization ----------
@@ -370,11 +441,11 @@ def section_optimization(df_g: pd.DataFrame, df_c: pd.DataFrame):
         e_opt, g_opt = float(res.x[0]), float(res.x[1])
         cost_opt = price_e*e_opt + price_g*g_opt
         co2e_opt = ef_e*e_opt + ef_g*g_opt
-        m1,m2,m3,m4 = st.columns(4)
-        m1.metric("Electricity (unit)", f"{e_opt:,.2f}")
-        m2.metric("Gas (unit)", f"{g_opt:,.2f}")
-        m3.metric("Total Cost", f"{cost_opt:,.2f}")
-        m4.metric("CO₂e (kg)", f"{co2e_opt:,.2f}")
+        a,b,c,d = st.columns(4)
+        a.metric("Electricity (unit)", f"{e_opt:,.2f}")
+        b.metric("Gas (unit)", f"{g_opt:,.2f}")
+        c.metric("Total Cost", f"{cost_opt:,.2f}")
+        d.metric("CO₂e (kg)", f"{co2e_opt:,.2f}")
         st.dataframe(pd.DataFrame([{
             "electricity":round(e_opt,2),"gas":round(g_opt,2),
             "cost":round(cost_opt,2),"co2e":round(co2e_opt,2),"success":bool(res.success)
@@ -392,8 +463,7 @@ def section_carbon_pricing():
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_cost["timestamp"], y=df_cost["cost_local"], mode="lines",
                                  name="Carbon Cost", line=dict(color=GREEN, width=2.1)))
-        fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TXT)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
         st.dataframe(df_cost.tail(12), use_container_width=True)
 
 # ---------- Partner Hub ----------
@@ -479,3 +549,6 @@ section_optimization(df_g, df_c)
 section_carbon_pricing()
 section_partner_hub()
 section_pdf()
+
+# CSS를 마지막에 한 번 더 주입해 우선순위 확보
+apply_theme()
