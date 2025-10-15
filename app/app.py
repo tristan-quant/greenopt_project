@@ -584,7 +584,7 @@ with tab_market:
                 st.plotly_chart(style_fig(fig), use_container_width=True)
 
                 # === Decision Advisor ===
-                st.markdown("### 🤖 AI Decision Advisor — 방향성 판단")
+                st.markdown("###  AI Decision Advisor — 방향성 판단")
                 df_dec = pd.DataFrame({"timestamp": te["timestamp"], "forecast": pred})
                 df_dec["change_pct"] = df_dec["forecast"].pct_change() * 100
                 trend_mean = float(df_dec["change_pct"].mean())
@@ -592,11 +592,11 @@ with tab_market:
                 conf_score = max(0, min(100, 100 - volatility * 5))
 
                 if trend_mean > 0.8:
-                    decision, color = "📈 상승 가능성 높음 — 매수 권고 (Long)", EMERALD
+                    decision, color = " 상승 가능성 높음 — 매수 권고 (Long)", EMERALD
                 elif trend_mean < -0.8:
-                    decision, color = "📉 하락 가능성 높음 — 매도 권고 (Short)", RED
+                    decision, color = " 하락 가능성 높음 — 매도 권고 (Short)", RED
                 else:
-                    decision, color = "⚖️ 횡보 예상 — 관망 권고 (Hold)", AMBER
+                    decision, color = " 횡보 예상 — 관망 권고 (Hold)", AMBER
 
                 optimistic = pred * 1.10
                 pessimistic = pred * 0.90
@@ -708,11 +708,11 @@ with tab_studio:
             b.metric("Last pred", f"{pred[-1]:,.2f}")
             drift = float((pred[-1]-pred[0]) / max(1e-9, pred[0]) * 100)
             if drift > 1.0:
-                dec_txt, colr = "📈 Increase likely", EMERALD
+                dec_txt, colr = " Increase likely", EMERALD
             elif drift < -1.0:
-                dec_txt, colr = "📉 Decrease likely", RED
+                dec_txt, colr = " Decrease likely", RED
             else:
-                dec_txt, colr = "⚖️ Flat / Hold", AMBER
+                dec_txt, colr = " Flat / Hold", AMBER
             c.markdown(f"<span style='color:{colr}'>{dec_txt}</span>", unsafe_allow_html=True)
 
             fig = go.Figure()
