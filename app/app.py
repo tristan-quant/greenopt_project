@@ -554,7 +554,7 @@ with tab_market:
 
                 # === AI Directional Decision Engine ===
                 st.divider()
-                st.markdown("### 🤖 AI Decision Advisor — 시장 방향성 예측 판단")
+                st.markdown("### AI Decision Advisor — 시장 방향성 예측 판단")
 
                 if pred is not None and len(pred) > 2:
                     df_dec = pd.DataFrame({
