@@ -1,5 +1,5 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (Dark+Green FINAL)
+# GreenOpt — Digital ESG Engine (Dark+Green FINAL+AllRange)
 # Forecast • Anomaly • Scope2 • CBAM • PDF • Partner Hub
 # =====================================================
 from __future__ import annotations
@@ -54,7 +54,7 @@ def init_theme():
         pio.templates["greenopt_dark"] = go.layout.Template(base)
         pio.templates.default = "greenopt_dark"
 
-    # Strong CSS overrides (sidebar, uploader, metrics, code blocks, etc.)
+    # Strong CSS overrides (sidebar, uploader, metrics, code blocks, number steppers)
     st.markdown(f"""
     <style>
       .stApp {{ background:{BG}; color:{TXT}; }}
@@ -102,6 +102,41 @@ def init_theme():
 
       /* Plotly toolbar icons */
       .modebar-group * {{ filter: invert(88%) !important; }}
+
+      /* ===== NumberInput stepper buttons (always green/red + hover) ===== */
+      .stNumberInput [aria-label="Increment value"],
+      .stNumberInput [aria-label="Increase value"] {{
+        background:{BG2} !important;
+        color:{TXT} !important;
+        border:1px solid {GREEN} !important;
+        border-radius:8px !important;
+        transition: transform .05s ease, background-color .15s ease, box-shadow .15s ease;
+      }}
+      .stNumberInput [aria-label="Decrement value"],
+      .stNumberInput [aria-label="Decrease value"] {{
+        background:{BG2} !important;
+        color:{TXT} !important;
+        border:1px solid #EF4444 !important;  /* red-500 */
+        border-radius:8px !important;
+        transition: transform .05s ease, background-color .15s ease, box-shadow .15s ease;
+      }}
+      .stNumberInput [aria-label="Increment value"]:hover {{
+        background: rgba(34,197,94,.12) !important; /* green tint */
+        box-shadow: 0 0 0 2px rgba(34,197,94,.25);
+      }}
+      .stNumberInput [aria-label="Decrement value"]:hover {{
+        background: rgba(239,68,68,.12) !important; /* red tint */
+        box-shadow: 0 0 0 2px rgba(239,68,68,.25);
+      }}
+      .stNumberInput [aria-label="Increment value"]:active,
+      .stNumberInput [aria-label="Decrement value"]:active {{
+        transform: translateY(1px) scale(0.98);
+      }}
+      .stNumberInput input:focus {{
+        outline: none !important;
+        box-shadow: 0 0 0 2px rgba(34,197,94,.35) !important;
+        border-color: {GREEN} !important;
+      }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -210,18 +245,42 @@ with st.sidebar:
         ef_elec_input = st.number_input("EF (market-based kg/kWh)", value=0.0, step=0.01)
 
     st.header("Filters")
-    # full-range defaults
-    tmin_all, tmax_all = df["timestamp"].min().date(), df["timestamp"].max().date()
-    date_key = f"date_range_{tmin_all.isoformat()}_{tmax_all.isoformat()}"
-    if st.button("Reset to full range", use_container_width=True):
-        st.session_state.pop(date_key, None)
+    # 전체 기간 계산 (데이터 기준)
+    tmin_all = df["timestamp"].min().date()
+    tmax_all = df["timestamp"].max().date()
 
+    # 범위 모드: All data / Custom
+    range_mode = st.radio(
+        "Range mode",
+        options=["All data", "Custom"],
+        horizontal=True,
+        index=0,
+        help="All data: 항상 전체 기간으로 고정. Custom: 날짜를 직접 선택",
+        key="range_mode_key"
+    )
+
+    # 날짜 위젯의 세션 키를 데이터 범위로 고정 생성 (이전 상태 오염 방지)
+    date_key = f"date_range_{tmin_all.isoformat()}_{tmax_all.isoformat()}"
+
+    # '전체기간으로 리셋' 버튼 (Custom 모드에서만 활성)
+    left, right = st.columns([1, 2])
+    with left:
+        if st.button("Reset to full range", disabled=(range_mode=="All data"), use_container_width=True):
+            st.session_state.pop(date_key, None)
+
+    # 날짜 입력 위젯
     start_date, end_date = st.date_input(
         "Date range",
         value=(tmin_all, tmax_all),
-        min_value=tmin_all, max_value=tmax_all,
-        key=date_key
+        min_value=tmin_all,
+        max_value=tmax_all,
+        key=date_key,
+        disabled=(range_mode=="All data")
     )
+    # All data 모드면 강제로 전체기간 사용
+    if range_mode == "All data":
+        start_date, end_date = tmin_all, tmax_all
+
     sel_lines = st.multiselect("Line", sorted(df["line"].dropna().unique()) if "line" in df.columns else [])
     sel_products = st.multiselect("Product", sorted(df["product"].dropna().unique()) if "product" in df.columns else [])
     rule = st.selectbox("Time granularity", ["H","D","W","M"], index=1)
@@ -391,7 +450,7 @@ with st.expander("Run optimization"):
     cost_opt = price_e*e_opt + price_g*g_opt
     co2e_opt = ef_e*e_opt + ef_g*g_opt
 
-    # ✅ metrics + table (no code box)
+    # metrics + table (no code box)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Electricity (unit)", f"{e_opt:,.2f}")
     m2.metric("Gas (unit)",         f"{g_opt:,.2f}")
@@ -469,7 +528,6 @@ with tab_t:
         "co2e_kg": df_g["co2e_kg"].round(6)
     }).to_csv(index=False)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    # ✅ no code box — read-only field
     st.text_input("SHA256(data_slice)", value=digest, disabled=True)
     st.caption(f"Scope2: {scope2_method} • EF_electricity(kg/kWh): {ef_elec_input} • EF_gas(kg/m³): {EMISSION_FACTOR_GAS}")
 
