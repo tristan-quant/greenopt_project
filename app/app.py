@@ -1,22 +1,27 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (Full Advanced Edition)
-# Forecasting • Optimization • Anomaly Detection • Scope2 • CBAM • PDF report
+# GreenOpt — Digital ESG Engine (Dark+Green Edition)
+# Forecast • Optimization • Anomaly • Scope2 • CBAM • PDF • Partner Hub
 # =====================================================
 from __future__ import annotations
 
-# ---------- 0) Auto-install guard (keeps app running even if packages missing) ----------
+# ---------- 0) Optional auto-install guard ----------
+# Streamlit Cloud에서는 requirements.txt 설치가 우선입니다.
+# 로컬/개발 환경 보조용으로만 동작합니다.
 import sys, subprocess
 
 def _ensure(pkg: str):
     try:
         __import__(pkg)
     except ImportError:
-        print(f"📦 Installing: {pkg} ...")
-        subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"], check=True)
+        try:
+            print(f"📦 Installing: {pkg} ...")
+            subprocess.run([sys.executable, "-m", "pip", "install", pkg, "-q"], check=True)
+        except Exception as e:
+            print(f"⚠️ Could not install {pkg}: {e}")
 
 for pkg in [
     "streamlit", "pandas", "numpy", "plotly", "scipy", "Pillow",
-    "scikit-learn", "statsmodels", "xgboost", "catboost", "reportlab"
+    "scikit-learn", "statsmodels", "reportlab"  # xgboost/catboost는 옵션(클라우드 빌드 에러 빈번)
 ]:
     _ensure(pkg)
 
@@ -24,16 +29,16 @@ for pkg in [
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import streamlit as st   # ✅ 이제부터 st 사용 가능
+import streamlit as st
 from PIL import Image
 
-# optional flags (define BEFORE using)
+# Optional flags
 _HAS_PLOTLY = False
 _HAS_STATSMODELS = False
 _HAS_XGBOOST = False
 _HAS_CATBOOST = False
 
-# Plotly (optional)
+# Plotly
 try:
     import plotly.express as px
     import plotly.graph_objects as go
@@ -42,28 +47,25 @@ except Exception:
     px = None
     go = None
 
-# statsmodels (optional)
+# statsmodels
 try:
     import statsmodels.api as sm
     _HAS_STATSMODELS = True
 except Exception:
     sm = None
 
-# xgboost (optional)
+# xgboost / catboost (선택)
 try:
-    from xgboost import XGBRegressor
+    from xgboost import XGBRegressor  # noqa
     _HAS_XGBOOST = True
 except Exception:
     XGBRegressor = None
-
-# catboost (optional)
 try:
-    from catboost import CatBoostRegressor
+    from catboost import CatBoostRegressor  # noqa
     _HAS_CATBOOST = True
 except Exception:
     CatBoostRegressor = None
 
-# rest
 from scipy.optimize import minimize
 from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
 from sklearn.metrics import mean_absolute_error
@@ -72,26 +74,59 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
-# ---------- util: safe capability banner ----------
-def _capabilities_banner():
-    st.caption(
-        f"Capabilities — plotly: {_HAS_PLOTLY} | "
-        f"statsmodels: {_HAS_STATSMODELS} | "
-        f"xgboost: {_HAS_XGBOOST} | "
-        f"catboost: {_HAS_CATBOOST}"
-    )
-
-# ---------- 2) Page & paths ----------
+# ---------- 2) Page & theme ----------
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
 
-APP_DIR = Path(__file__).resolve().parent
+# THEME: dark + green
+GREEN = "#22C55E"
+BG    = "#0E1117"
+BG2   = "#111827"
+TXT   = "#F3F4F6"
+
+def init_theme():
+    # Plotly 전역 템플릿
+    if _HAS_PLOTLY:
+        import plotly.io as pio
+        base = {
+            "layout": {
+                "paper_bgcolor": "rgba(0,0,0,0)",
+                "plot_bgcolor": "rgba(0,0,0,0)",
+                "font": {"color": TXT},
+                "xaxis": {"gridcolor": "#374151"},
+                "yaxis": {"gridcolor": "#374151"},
+                "colorway": [GREEN, "#10B981", "#34D399", "#6EE7B7"],
+            }
+        }
+        pio.templates["greenopt_dark"] = go.layout.Template(base)
+        pio.templates.default = "greenopt_dark"
+
+    # Streamlit CSS 보정
+    st.markdown(f"""
+    <style>
+      .stApp {{ background:{BG}; color:{TXT}; }}
+      [data-testid="stHeader"] {{ background: transparent; }}
+      .block {{ background:{BG2}; border-radius:16px; padding:16px; }}
+      .metric {{ font-weight:700; }}
+      div[data-baseweb="select"] > div {{ background:{BG2}; }}
+      .stDataFrame, .stMarkdown, .stText, .stCaption {{ color:{TXT}; }}
+      .st-emotion-cache-1gwvy71 a {{ color:{GREEN}; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+init_theme()
+
+# paths (Cloud 대비 __file__ 폴백)
+try:
+    APP_DIR = Path(__file__).resolve().parent
+except NameError:
+    APP_DIR = Path.cwd()
 ROOT = APP_DIR.parents[0]
 DATA_DIR = ROOT / "data"
 ASSET_DIR = APP_DIR / "assets"
-DEFAULT_CSV = DATA_DIR / "factory_data.csv"   # 3년 데이터가 있다고 가정
+DEFAULT_CSV = DATA_DIR / "factory_data.csv"
 
 # ---------- 3) Emission factors & helpers ----------
-EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg CO2e/kWh (location-based 예시)
+EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg CO2e/kWh (예시)
 EMISSION_FACTOR_GAS = 2.0                    # kg CO2e/m3
 
 @st.cache_data(show_spinner=False)
@@ -99,7 +134,7 @@ def load_data(path: Path) -> pd.DataFrame:
     if path.exists():
         df = pd.read_csv(path)
     else:
-        # fallback: 3년치 시간단위 샘플 생성
+        # fallback: 3년치 시간단위 샘플
         periods = 24*365*3
         idx = pd.date_range("2023-01-01", periods=periods, freq="H")
         rng = np.random.default_rng(42)
@@ -111,11 +146,11 @@ def load_data(path: Path) -> pd.DataFrame:
             "line": rng.choice(["A-Line","B-Line","C-Line"], periods, p=[0.4,0.4,0.2]),
             "product": rng.choice(["Widget-X","Widget-Y","Widget-Z"], periods),
         })
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
+    df = df.sort_values("timestamp").reset_index(drop=True)
     return df
 
 def resample_df(df: pd.DataFrame, rule: str) -> pd.DataFrame:
-    # 시간 해상도 변경: H/D/W/M
     agg = {
         "electricity_kwh":"sum",
         "gas_m3":"sum",
@@ -123,15 +158,22 @@ def resample_df(df: pd.DataFrame, rule: str) -> pd.DataFrame:
         "co2e_kg":"sum",
         "pcf_kg_per_ton":"mean"
     }
-    return (df
-            .set_index("timestamp")
-            .resample(rule)
-            .agg(agg)
-            .reset_index())
+    return (df.set_index("timestamp")
+              .resample(rule)
+              .agg(agg)
+              .reset_index())
 
-# ---------- 4) Header (logo left-top) ----------
-header_cols = st.columns([0.12, 0.88])
-with header_cols[0]:
+def _capabilities_banner():
+    st.caption(
+        f"Capabilities — plotly: {_HAS_PLOTLY} | "
+        f"statsmodels: {_HAS_STATSMODELS} | "
+        f"xgboost: {_HAS_XGBOOST} | "
+        f"catboost: {_HAS_CATBOOST}"
+    )
+
+# ---------- 4) Header ----------
+h1, h2 = st.columns([0.12, 0.88])
+with h1:
     logo_candidates = [
         ASSET_DIR / "greenopt_logo.png",
         ASSET_DIR / "logo.png",
@@ -142,25 +184,31 @@ with header_cols[0]:
     if logo:
         st.image(Image.open(logo))
     else:
-        st.caption("No logo found (optional). Place one in app/assets/ or assets/.")
-with header_cols[1]:
+        st.caption("No logo found. Place 512px transparent logo in app/assets/.")
+with h2:
     st.title("GreenOpt — AI Carbon Intelligence Platform")
-    st.caption("Forecasting • Optimization • Anomaly detection • 3-year time-series analytics")
-    _capabilities_banner()  # ✅ 모든 플래그가 정의된 이후 안전하게 호출
-
+    st.caption("Forecasting • Optimization • Anomaly detection • 3-year analytics")
+    _capabilities_banner()
 st.divider()
 
-# ---------- 5) Sidebar: data & baseline controls ----------
+# ---------- 5) Sidebar controls ----------
 with st.sidebar:
     st.header("Data")
     uploaded = st.file_uploader("Upload CSV (3+ years preferred)", type=["csv"])
     if uploaded:
         df = pd.read_csv(uploaded)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
         st.success("Uploaded CSV loaded.")
     else:
         df = load_data(DEFAULT_CSV)
-        st.info(f"Loaded: {DEFAULT_CSV.name}" if DEFAULT_CSV.exists() else "Using generated 3-year sample")
+        st.info(f"Loaded: {DEFAULT_CSV.name}" if DEFAULT_CSV.exists() else "Generated sample (3 years)")
+
+    # 필수 컬럼 확인
+    required = {"timestamp","electricity_kwh","gas_m3","production_ton"}
+    missing = required - set(df.columns)
+    if missing:
+        st.error(f"Missing required columns: {', '.join(sorted(missing))}")
+        st.stop()
 
     st.header("Scope 2 method")
     scope2_method = st.selectbox("Electricity EF method", ["Location-based", "Market-based"], index=0)
@@ -168,7 +216,6 @@ with st.sidebar:
         ef_elec_input = st.number_input("EF (location-based, kg/kWh)",
                                         value=float(EMISSION_FACTOR_ELECTRICITY_DEFAULT), step=0.01)
     else:
-        # 시장기반: 구매전력 보증서/RECs 등 반영(예시 기본값 0.0)
         ef_elec_input = st.number_input("EF (market-based, kg/kWh)", value=0.000, step=0.01)
 
     st.header("Filters")
@@ -178,33 +225,29 @@ with st.sidebar:
     sel_products = st.multiselect("Product", sorted(df["product"].dropna().unique().tolist()) if "product" in df.columns else [])
     rule = st.selectbox("Time granularity", ["H","D","W","M"], index=1)  # 기본 일간
 
-# ---------- 6) Multivariate features (temperature/utilization) ----------
 with st.sidebar:
     st.header("External Features")
     aux = st.file_uploader("Upload AUX CSV (timestamp, temperature_c, utilization_pct ...)", type=["csv"], key="aux")
     if aux:
         df_aux = pd.read_csv(aux)
-        df_aux["timestamp"] = pd.to_datetime(df_aux["timestamp"])
+        df_aux["timestamp"] = pd.to_datetime(df_aux["timestamp"]).dt.tz_localize(None)
         df = df.merge(df_aux, on="timestamp", how="left")
         st.success("AUX merged: " + ", ".join([c for c in df_aux.columns if c != "timestamp"]))
     else:
-        # 항상 t_days를 먼저 정의(둘 중 하나만 비어 있어도 오류 없이 생성)
         t_days = (df["timestamp"] - df["timestamp"].min()).dt.days.values
-
-        # AUX 미제공 시 예시 피처 생성 (동작 보장)
         if "temperature_c" not in df.columns:
             df["temperature_c"] = 18 + 7*np.sin(2*np.pi*(t_days/365)) + np.random.normal(0, 1.5, len(df))
         if "utilization_pct" not in df.columns:
             base = 70 + 20*np.sin(2*np.pi*(t_days/30)) + np.random.normal(0, 5, len(df))
             df["utilization_pct"] = np.clip(base, 20, 100)
 
-# ---------- 7) Apply filters ----------
-mask = (df["timestamp"] >= pd.to_datetime(start_date)) & (df["timestamp"] <= pd.to_datetime(end_date) + pd.Timedelta(days=1)-pd.Timedelta(seconds=1))
+# ---------- 6) Filters apply ----------
+mask = (df["timestamp"] >= pd.to_datetime(start_date)) & (df["timestamp"] <= pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
 if sel_lines and "line" in df.columns:       mask &= df["line"].isin(sel_lines)
 if sel_products and "product" in df.columns:  mask &= df["product"].isin(sel_products)
 df = df.loc[mask].copy()
 
-# ---------- 8) Carbon columns with chosen Scope2 EF ----------
+# ---------- 7) Carbon columns ----------
 def add_carbon_columns(df_in: pd.DataFrame) -> pd.DataFrame:
     dfc = df_in.copy()
     ef_elec = ef_elec_input
@@ -216,7 +259,7 @@ def add_carbon_columns(df_in: pd.DataFrame) -> pd.DataFrame:
 df = add_carbon_columns(df)
 df_g = resample_df(df, rule)
 
-# ---------- 9) KPI ----------
+# ---------- 8) KPIs ----------
 def show_kpis(dfi: pd.DataFrame):
     total = dfi["co2e_kg"].sum()
     avg_pcf = dfi["pcf_kg_per_ton"].mean()
@@ -229,23 +272,31 @@ def show_kpis(dfi: pd.DataFrame):
 
 show_kpis(df_g)
 
-# ---------- 10) Overview chart ----------
+# ---------- 9) Overview chart ----------
 st.subheader("Time-series overview")
 if not df_g.empty:
     if _HAS_PLOTLY:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines+markers", name="CO₂e (kg)"))
+        fig.add_trace(go.Scatter(
+            x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines",
+            name="CO₂e (kg)", line=dict(color=GREEN, width=2.5)
+        ))
+        fig.update_layout(title="CO₂e (resampled)")
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.line_chart(df_g.set_index("timestamp")["co2e_kg"])
+        import matplotlib.pyplot as plt
+        plt.style.use("dark_background")
+        fig, ax = plt.subplots()
+        ax.plot(df_g["timestamp"], df_g["co2e_kg"], color=GREEN)
+        st.pyplot(fig, use_container_width=True)
 else:
     st.warning("No data in selected range")
 
-# ---------- 11) STL decomposition ----------
+# ---------- 10) STL decomposition ----------
 st.subheader("Seasonal-Trend Decomposition (STL)")
 with st.expander("Show STL decomposition"):
     if not _HAS_STATSMODELS:
-        st.info("statsmodels가 설치되어 있지 않아 STL 분석을 건너뜁니다. requirements.txt에 statsmodels를 추가하세요.")
+        st.info("statsmodels가 없어 STL을 건너뜁니다. requirements.txt에 statsmodels를 추가하세요.")
     else:
         try:
             s = df_g.set_index("timestamp")["co2e_kg"]
@@ -257,7 +308,7 @@ with st.expander("Show STL decomposition"):
             stl = sm.tsa.STL(s, robust=True).fit()
             if _HAS_PLOTLY:
                 comp_fig = go.Figure()
-                comp_fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend"))
+                comp_fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend", line=dict(color=GREEN)))
                 comp_fig.add_trace(go.Scatter(x=stl.seasonal.index, y=stl.seasonal.values, name="Seasonal"))
                 comp_fig.add_trace(go.Scatter(x=stl.resid.index, y=stl.resid.values, name="Residual"))
                 comp_fig.update_layout(title="STL Components")
@@ -269,7 +320,7 @@ with st.expander("Show STL decomposition"):
         except Exception as e:
             st.info(f"STL decomposition skipped: {e}")
 
-# ---------- 12) Anomaly detection ----------
+# ---------- 11) Anomaly detection ----------
 st.subheader("Anomaly Detection")
 with st.expander("Detect anomalies (IsolationForest)"):
     if len(df_g) >= 30:
@@ -279,10 +330,11 @@ with st.expander("Detect anomalies (IsolationForest)"):
         df_g["anomaly"] = (labels == -1)
         if _HAS_PLOTLY:
             fig_a = go.Figure()
-            fig_a.add_trace(go.Scatter(x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines", name="CO₂e"))
+            fig_a.add_trace(go.Scatter(x=df_g["timestamp"], y=df_g["co2e_kg"], mode="lines",
+                                       name="CO₂e", line=dict(color=GREEN, width=2.2)))
             anom = df_g[df_g["anomaly"]]
-            fig_a.add_trace(go.Scatter(x=anom["timestamp"], y=anom["co2e_kg"], mode="markers", name="Anomaly",
-                                       marker=dict(size=8, symbol="x")))
+            fig_a.add_trace(go.Scatter(x=anom["timestamp"], y=anom["co2e_kg"], mode="markers",
+                                       name="Anomaly", marker=dict(size=8, symbol="x", color="#FCA5A5")))
             fig_a.update_layout(title="Anomaly detection")
             st.plotly_chart(fig_a, use_container_width=True)
         else:
@@ -290,10 +342,13 @@ with st.expander("Detect anomalies (IsolationForest)"):
     else:
         st.info("Need at least 30 periods for anomaly detection.")
 
-# ---------- 13) Forecasting (GBR, ARIMA, + AutoML: XGBoost/CatBoost) ----------
+# ---------- 12) Forecasting ----------
 st.subheader("Forecasting")
-with st.expander("Train models & forecast (with AutoML)"):
-    horizon = st.slider(f"Forecast horizon ({rule})", 7 if rule=="D" else 24, 180, 30)
+with st.expander("Train models & forecast"):
+    # 해상도별 합리적 슬라이더
+    min_h = 24 if rule=="H" else (7 if rule=="D" else 8)
+    default_h = 72 if rule=="H" else (30 if rule=="D" else 12)
+    horizon = st.slider(f"Forecast horizon ({rule})", min_h, 180, default_h)
 
     # Feature engineering
     dff = df_g.copy()
@@ -327,7 +382,7 @@ with st.expander("Train models & forecast (with AutoML)"):
         pred_gbr = gbr.predict(X_test)
         mae_gbr  = mean_absolute_error(y_test, pred_gbr)
 
-        # ARIMA small grid (guarded)
+        # ARIMA (옵션)
         pred_arima, mae_arima, best_order = None, np.inf, None
         if _HAS_STATSMODELS:
             try:
@@ -348,50 +403,10 @@ with st.expander("Train models & forecast (with AutoML)"):
             except Exception:
                 pred_arima, mae_arima, best_order = None, np.inf, None
         else:
-            st.info("ARIMA skipped (statsmodels not available).")
+            st.caption("ARIMA skipped (statsmodels not available).")
 
-        # AutoML: XGBoost (if available)
-        best_name, best_model_obj, best_pred, best_mae = "GBR", gbr, pred_gbr, mae_gbr
-        if _HAS_XGBOOST:
-            try:
-                xgb = XGBRegressor(n_estimators=400, learning_rate=0.05, max_depth=6,
-                                   subsample=0.8, colsample_bytree=0.8, random_state=42)
-                param_xgb = {
-                    "n_estimators": [300, 400, 600],
-                    "max_depth": [4, 6, 8],
-                    "learning_rate": [0.03, 0.05, 0.1],
-                    "subsample": [0.7, 0.8, 1.0],
-                    "colsample_bytree": [0.7, 0.8, 1.0],
-                }
-                tscv = TimeSeriesSplit(n_splits=3)
-                rs_xgb = RandomizedSearchCV(xgb, param_distributions=param_xgb, n_iter=8, cv=tscv,
-                                            scoring="neg_mean_absolute_error", random_state=42, n_jobs=-1)
-                rs_xgb.fit(X_train, y_train)
-                pred_xgb = rs_xgb.best_estimator_.predict(X_test)
-                mae_xgb  = mean_absolute_error(y_test, pred_xgb)
-                if mae_xgb < best_mae:
-                    best_name, best_model_obj, best_pred, best_mae = "XGBoost", rs_xgb.best_estimator_, pred_xgb, mae_xgb
-            except Exception:
-                pass
-        else:
-            st.caption("XGBoost not available — skipped.")
-
-        # AutoML: CatBoost (if available)
-        if _HAS_CATBOOST:
-            try:
-                cbr = CatBoostRegressor(
-                    iterations=500, depth=6, learning_rate=0.05, loss_function="MAE",
-                    verbose=False, random_state=42
-                )
-                cbr.fit(X_train, y_train)
-                pred_cbr = cbr.predict(X_test)
-                mae_cbr  = mean_absolute_error(y_test, pred_cbr)
-                if mae_cbr < best_mae:
-                    best_name, best_model_obj, best_pred, best_mae = "CatBoost", cbr, pred_cbr, mae_cbr
-            except Exception:
-                pass
-        else:
-            st.caption("CatBoost not available — skipped.")
+        # AutoML 후보: xgboost/catboost는 설치 환경 문제 잦아 기본 OFF
+        best_name, best_pred, best_mae = "GBR", pred_gbr, mae_gbr
 
         colA, colB, colC = st.columns(3)
         colA.metric("Best model", best_name)
@@ -404,18 +419,19 @@ with st.expander("Train models & forecast (with AutoML)"):
             fig_f = go.Figure()
             fig_f.add_trace(go.Scatter(x=train["timestamp"], y=train["co2e_kg"], name="Train"))
             fig_f.add_trace(go.Scatter(x=test["timestamp"],  y=y_test, name="Actual"))
-            fig_f.add_trace(go.Scatter(x=test["timestamp"],  y=best_pred, name=f"{best_name} Forecast"))
+            fig_f.add_trace(go.Scatter(x=test["timestamp"],  y=best_pred, name=f"{best_name} Forecast",
+                                       line=dict(color=GREEN, width=2.2)))
             if pred_arima is not None:
                 fig_f.add_trace(go.Scatter(x=test["timestamp"], y=pred_arima, name="ARIMA Forecast"))
-            fig_f.update_layout(title="Forecast comparison (Best vs ARIMA)")
+            fig_f.update_layout(title="Forecast comparison")
             st.plotly_chart(fig_f, use_container_width=True)
 
-        # Save to session for scenario & report
+        # Save to session
         st.session_state["best_model_name"] = best_name
         st.session_state["best_pred_series"] = pd.Series(best_pred, index=test["timestamp"])
         st.session_state["y_actual_series"]  = pd.Series(y_test.values, index=test["timestamp"])
 
-# ---------- 14) Optimization (Lagrangian / constrained) ----------
+# ---------- 13) Optimization ----------
 st.subheader("Optimization (Lagrangian / constrained)")
 with st.expander("Run optimization"):
     st.markdown("""
@@ -428,22 +444,16 @@ SciPy `minimize` is used (KKT-style numeric search).
     co2e_cap = st.number_input("CO₂e cap (kg)", value=float(df_g["co2e_kg"].quantile(0.75)) if not df_g.empty else 1_000.0, step=100.0)
     prod_target = st.number_input("Production target (ton)", value=float(df["production_ton"].mean()*24) if not df.empty else 100.0, step=10.0)
 
-    # decision variables: electricity, gas (aggregated period units)
     price_elec, price_gas = 0.15, 0.08
     ef_elec, ef_gas = ef_elec_input, EMISSION_FACTOR_GAS
 
     if scenario == "Minimize Cost (CO₂e cap)":
-        def obj(x):
-            e, g = x
-            return price_elec*e + price_gas*g
+        def obj(x): e, g = x; return price_elec*e + price_gas*g
         cons = [{"type":"ineq", "fun": lambda x: co2e_cap - (ef_elec*x[0] + ef_gas*x[1])}]
         bounds = [(0, None),(0,None)]
         x0 = [co2e_cap/ef_elec*0.5 if ef_elec>0 else 0.0, co2e_cap/ef_gas*0.5]
     else:
-        def obj(x):
-            e, g = x
-            return ef_elec*e + ef_gas*g
-        # simple production function (toy)
+        def obj(x): e, g = x; return ef_elec*e + ef_gas*g
         alpha, beta = 0.02, 0.05
         cons = [{"type":"ineq", "fun": lambda x: (alpha*x[0] + beta*x[1]) - prod_target}]
         bounds = [(0, None),(0,None)]
@@ -462,7 +472,7 @@ SciPy `minimize` is used (KKT-style numeric search).
     })
     st.caption("Lagrangian view: at optimum, objective gradient ∥ constraint gradient (KKT-like).")
 
-# ---------- 15) Carbon price scenarios (ETS/CBAM) ----------
+# ---------- 14) Carbon price scenarios ----------
 st.subheader("Carbon Pricing Scenarios")
 with st.expander("Apply ETS/CBAM to forecasts"):
     price_per_ton = st.number_input("Carbon price (per tCO₂e, e.g., €)", value=85.0, step=1.0)
@@ -489,6 +499,10 @@ with st.expander("Apply ETS/CBAM to forecasts"):
         if _HAS_PLOTLY:
             fig_c = px.line(df_cost, x="timestamp", y=["cost_base_local","cost_cbam_local"],
                             title="Carbon cost (local currency)")
+            # 초록 계열 유지
+            for tr in fig_c.data:
+                tr.line.color = GREEN
+                tr.line.width = 2.2
             st.plotly_chart(fig_c, use_container_width=True)
 
         st.dataframe(df_cost.tail(12), use_container_width=True)
@@ -496,11 +510,87 @@ with st.expander("Apply ETS/CBAM to forecasts"):
     else:
         st.info("Run Forecasting first to generate prediction series.")
 
-# ---------- 16) Data table & CSV ----------
+# ---------- 15) Data table & CSV ----------
 with st.expander("Data (resampled)"):
     st.dataframe(df_g, use_container_width=True)
 csv_bytes = df_g.to_csv(index=False).encode("utf-8")
 st.download_button("⬇️ Download (resampled) CSV", data=csv_bytes, file_name="greenopt_resampled.csv", mime="text/csv")
+
+# ---------- 16) Partner Hub: Benchmark • Invite • Trust ----------
+st.subheader("Partner Hub — Benchmark • Invite • Showcase")
+tab_bench, tab_invite, tab_trust = st.tabs(["Benchmark", "Invite Partners", "Trust & Attestation"])
+
+with tab_bench:
+    st.markdown("#### Benchmark against industry peers")
+    st.caption("업로드한 협력사 또는 공공지표와 우리 공장의 PCF를 비교합니다.")
+    partner_file = st.file_uploader("Upload partner benchmark CSV (timestamp, product, line, pcf_kg_per_ton)", type=["csv"], key="partner_bench")
+    if partner_file:
+        dfp = pd.read_csv(partner_file)
+        if "pcf_kg_per_ton" not in dfp.columns:
+            st.error("partner CSV must include 'pcf_kg_per_ton'.")
+        else:
+            ours = df_g["pcf_kg_per_ton"].mean()
+            peers = dfp["pcf_kg_per_ton"].mean()
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Our Avg PCF (kg/ton)", f"{ours:,.2f}")
+            col2.metric("Peer Avg PCF (kg/ton)", f"{peers:,.2f}")
+            gap = peers - ours
+            col3.metric("Gap (peer - us)", f"{gap:,.2f}", delta=f"{'+' if gap>0 else ''}{gap:,.2f}")
+            if _HAS_PLOTLY:
+                d_plot = pd.DataFrame({
+                    "type": ["us"]*len(df_g) + ["peer"]*len(dfp),
+                    "pcf":  list(df_g["pcf_kg_per_ton"].fillna(method="ffill")) + list(dfp["pcf_kg_per_ton"])
+                })
+                figb = px.violin(d_plot, x="type", y="pcf", points="all")
+                for tr in figb.data:
+                    if tr.name == "us":
+                        tr.line.color = GREEN
+                figb.update_layout(title="PCF distribution: us vs peers")
+                st.plotly_chart(figb, use_container_width=True)
+            st.success("Benchmark complete.")
+    else:
+        st.info("파트너 벤치마크 CSV를 업로드하십시오. (필드: timestamp, product, line, pcf_kg_per_ton)")
+
+with tab_invite:
+    st.markdown("#### Invite partners with a one-pager & data slice")
+    import uuid, json
+    invite_code = st.text_input("Invite code (auto)", value=str(uuid.uuid4()))
+    st.caption("초대 코드를 공유하면 파트너가 표준 스키마로 데이터를 제출할 수 있습니다.")
+    if not df_g.empty:
+        sample = df_g.tail(12)[["timestamp","co2e_kg","pcf_kg_per_ton"]].copy()
+        pack = {
+            "title": "GreenOpt Partner Brief",
+            "kpi": {
+                "total_co2e_kg": float(df_g["co2e_kg"].sum()),
+                "avg_pcf": float(df_g["pcf_kg_per_ton"].mean())
+            },
+            "sample": sample.to_dict(orient="records"),
+            "invite_code": invite_code
+        }
+        st.download_button("⬇️ Download Partner Pack (JSON)",
+                           data=json.dumps(pack, ensure_ascii=False, indent=2).encode("utf-8"),
+                           file_name="greenopt_partner_pack.json", mime="application/json")
+    else:
+        st.info("데이터가 있어야 파트너 팩을 생성할 수 있습니다.")
+
+with tab_trust:
+    st.markdown("#### Trust & Attestation")
+    st.caption("제출/교환되는 데이터에 대해 무결성(SHA-256) 해시와 계산 근거를 제시합니다.")
+    import hashlib
+    payload = pd.DataFrame({
+        "timestamp": df_g["timestamp"].astype(str),
+        "co2e_kg": df_g["co2e_kg"].round(6)
+    }).to_csv(index=False)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    st.code(f"SHA256(data_slice) = {digest}")
+    st.markdown(f"""
+- **Scope2 method**: {scope2_method}  
+- **EF_electricity (kg/kWh)**: {ef_elec_input}  
+- **EF_gas (kg/m³)**: {EMISSION_FACTOR_GAS}  
+- **Formula**: co2e_kg = electricity_kwh*EF_elec + gas_m3*EF_gas  
+- **Lineage**: raw → resample({rule}) → KPI/Forecast/Report
+    """)
+    st.success("이 해시와 산식/버전 표기는 협력사·감사 대응 시 신뢰 신호로 작동합니다.")
 
 # ---------- 17) KPI / Report PDF ----------
 st.subheader("Export KPI / Report to PDF")
