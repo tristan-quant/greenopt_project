@@ -1,5 +1,5 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (Dark+Green, Cloud-Stable)
+# GreenOpt — Digital ESG Engine (Dark+Green, Cloud-Stable FINAL)
 # Forecast • Anomaly • Scope2 • CBAM • PDF • Partner Hub
 # =====================================================
 from __future__ import annotations
@@ -55,7 +55,7 @@ def init_theme():
         pio.templates["greenopt_dark"] = go.layout.Template(base)
         pio.templates.default = "greenopt_dark"
 
-    # 강제 CSS (사이드바 포함)
+    # 강제 CSS (사이드바/업로더/메트릭 포함)
     st.markdown(f"""
     <style>
       .stApp {{ background:{BG}; color:{TXT}; }}
@@ -66,9 +66,24 @@ def init_theme():
         background:{BG2} !important; color:{TXT} !important;
       }}
       [data-testid="stSidebar"] * {{ color:{TXT} !important; }}
+
+      /* 셀렉트/인풋 */
       div[data-baseweb="select"] > div {{ background:{BG2}; color:{TXT}; }}
       .stTextInput input, .stNumberInput input, .stDateInput input {{ background:{BG2}; color:{TXT}; }}
 
+      /* 업로더(흰색 패치 제거) */
+      [data-testid="stFileUploader"] section div div div {{
+          background-color: {BG2} !important;
+          color: {TXT} !important;
+          border: 1px solid #374151 !important;
+          border-radius: 8px !important;
+      }}
+      [data-testid="stFileUploader"] section div div span {{ color: {TXT} !important; }}
+
+      /* 메트릭 텍스트 완전 흰색 */
+      [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT} !important; }}
+
+      /* 카드/표/링크 */
       .block {{ background:{BG2}; border-radius:16px; padding:16px; }}
       .stDataFrame, .stMarkdown, .stText, .stCaption {{ color:{TXT}; }}
       a {{ color:{GREEN}; }}
@@ -86,7 +101,7 @@ def style_fig(fig, title=None, line_color=GREEN, line_width=2.2):
         font=dict(color=TXT),
         xaxis=dict(gridcolor="#374151", zerolinecolor="#374151"),
         yaxis=dict(gridcolor="#374151", zerolinecolor="#374151"),
-        title=title or fig.layout.title.text if fig.layout.title.text else None,
+        title=title if title else (fig.layout.title.text or None),
     )
     for tr in fig.data:
         if hasattr(tr, "line"):
@@ -206,8 +221,11 @@ with st.sidebar:
             base = 70 + 20*np.sin(2*np.pi*(t_days/30)) + np.random.normal(0, 5, len(df))
             df["utilization_pct"] = np.clip(base, 20, 100)
 
-# ---------- Apply filters ----------
-mask = (df["timestamp"] >= pd.to_datetime(start_date)) & (df["timestamp"] <= pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
+# ---------- Apply filters (기간 전체 보장: end_date 23:59:59) ----------
+mask = (
+    (df["timestamp"] >= pd.to_datetime(start_date))
+    & (df["timestamp"] <= pd.to_datetime(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59))
+)
 if sel_lines and "line" in df.columns:      mask &= df["line"].isin(sel_lines)
 if sel_products and "product" in df.columns: mask &= df["product"].isin(sel_products)
 df = df.loc[mask].copy()
@@ -377,12 +395,12 @@ with tab_b:
     st.caption("Upload partner benchmark CSV (timestamp, product, line, pcf_kg_per_ton)")
     f = st.file_uploader("Partner CSV", type=["csv"], key="pb")
     if f:
-        pdf = pd.read_csv(f)
-        if "pcf_kg_per_ton" not in pdf.columns:
+        pdf_ = pd.read_csv(f)
+        if "pcf_kg_per_ton" not in pdf_.columns:
             st.error("Missing 'pcf_kg_per_ton'")
         else:
             ours = df_g["pcf_kg_per_ton"].mean()
-            peers = pdf["pcf_kg_per_ton"].mean()
+            peers = pdf_["pcf_kg_per_ton"].mean()
             a,b,c = st.columns(3)
             a.metric("Our Avg PCF", f"{ours:,.2f}")
             b.metric("Peer Avg PCF", f"{peers:,.2f}")
@@ -417,7 +435,7 @@ with tab_t:
     }).to_csv(index=False)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     st.code(f"SHA256(data_slice) = {digest}")
-    st.caption(f"Scope2: {scope2_method} | EF_electricity(kg/kWh): {ef_elec_input} | EF_gas(kg/m³): {EMISSION_FACTOR_GAS}")
+    st.caption(f"Scope2: {scope2_method} | EF_electricity(kg/kWh): {ef_elec_input} | EF_gas(kg/m³): {2.0}")
 
 # ---------- Export PDF ----------
 st.subheader("Export KPI / Report (PDF)")
