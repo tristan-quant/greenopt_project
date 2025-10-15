@@ -1,12 +1,13 @@
 # =====================================================
 # GreenOpt — Digital ESG Engine (FINAL • All-in-One • Ultra-Dark)
-# All text white • All backgrounds dark • Full-range charts (3y)
-# STL(optional) • Anomaly • Forecast • Optimization • Pricing
-# Partner Hub • PDF Export
+# Single-file app.py (self-contained)
 # =====================================================
 from __future__ import annotations
+
 from pathlib import Path
+from io import BytesIO
 import json, uuid, hashlib
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -15,7 +16,8 @@ import plotly.graph_objects as go
 from sklearn.ensemble import IsolationForest, GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error
 from scipy.optimize import minimize
-from io import BytesIO
+
+# PDF (optional; installed via requirements)
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -34,153 +36,78 @@ RED  = "#ef4444"   # red for decrease buttons
 def apply_theme():
     st.markdown(f"""
     <style>
-    /* ===== GLOBAL (force dark + white) ===== */
     html, body, .stApp, .block-container {{
-        background: {BG} !important;
-        color: {TXT} !important;
+        background: {BG} !important; color: {TXT} !important;
     }}
     [data-testid="stHeader"] {{ background: transparent !important; }}
-    [data-testid="stMarkdown"], [data-testid="stMarkdownContainer"], [data-testid="stText"] {{
-        color: {TXT} !important;
+    [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
+        background: {BG2} !important; color: {TXT} !important;
     }}
-    * {{ color: {TXT}; }}
 
     a, a:link, a:visited {{ color: {GREEN} !important; text-decoration: none !important; }}
     a:hover {{ text-decoration: underline !important; }}
 
-    /* ===== SIDEBAR ===== */
-    [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
-        background: {BG2} !important;
-        color: {TXT} !important;
-    }}
-    [data-testid="stSidebar"] * {{ color: {TXT} !important; }}
-
-    /* ===== INPUTS ===== */
     .stTextInput input, .stNumberInput input, .stDateInput input, select, textarea {{
-        background: {BG2} !important;
-        color: {TXT} !important;
-        border: 1px solid {BORDER} !important;
-        border-radius: 10px !important;
+        background: {BG2} !important; color: {TXT} !important;
+        border: 1px solid {BORDER} !important; border-radius: 10px !important;
     }}
     div[data-baseweb="select"] > div {{
         background: {BG2} !important; color: {TXT} !important; border:1px solid {BORDER} !important;
     }}
 
-    /* ===== BUTTONS (primary/secondary) ===== */
     .stButton button, [data-baseweb="button"] {{
-        background: #1e293b !important;
-        color: {TXT} !important;
-        border: 1px solid {BORDER} !important;
-        border-radius: 10px !important;
+        background: #1e293b !important; color: {TXT} !important;
+        border: 1px solid {BORDER} !important; border-radius: 10px !important;
     }}
     .stButton button:hover, [data-baseweb="button"]:hover {{
         background: {GREEN} !important; color: {TXT} !important;
     }}
 
-    /* ===== Download & Secondary buttons: 강제 다크 ===== */
     [data-testid="stDownloadButton"] > button,
     button[kind="secondary"],
     [data-testid="baseButton-secondary"],
     [data-testid="baseButton-secondaryFormSubmit"] {{
-        background: {BG2} !important;
-        color: {TXT} !important;
-        border: 1px solid {BORDER} !important;
-        border-radius: 10px !important;
+        background: {BG2} !important; color: {TXT} !important;
+        border: 1px solid {BORDER} !important; border-radius: 10px !important;
     }}
     [data-testid="stDownloadButton"] > button:hover,
     button[kind="secondary"]:hover,
     [data-testid="baseButton-secondary"]:hover,
     [data-testid="baseButton-secondaryFormSubmit"]:hover {{
-        background: {GREEN} !important;
-        color: {TXT} !important;
+        background: {GREEN} !important; color: {TXT} !important;
         border-color: {GREEN} !important;
     }}
 
-    /* ===== FILE UPLOADER ===== */
-    [data-testid="stFileUploader"], [data-testid="stFileUploader"] * {{
-      color: {TXT} !important;
-    }}
-    [data-testid="stFileUploader"] > div:first-child,
-    [data-testid="stFileUploaderDropzone"] {{
-      background: {BG2} !important;
-      border: 1px dashed {BORDER} !important;
-      color: {TXT} !important;
-    }}
-    [data-testid="stFileUploader"] [role="button"],
-    [data-testid="stFileUploader"] button {{
-      background: {BG2} !important;
-      color: {TXT} !important;
-      border: 1px solid {BORDER} !important;
-    }}
-
-    /* ===== NUMBER INPUT ± (dark + red/green) ===== */
+    /* NumberInput +/- */
     .stNumberInput div[data-baseweb="input"], .stNumberInput input {{
         background:{BG2} !important; color:{TXT} !important;
         border:1px solid {BORDER} !important; border-radius:10px !important;
     }}
-    .stNumberInput div[role="group"], .stNumberInput div[data-baseweb="button-group"] {{
-        background:{BG2} !important;
-    }}
-    .stNumberInput [data-baseweb="button"], .stNumberInput button {{
-        background:{BG2} !important; color:{TXT} !important; box-shadow:none !important; border-radius:8px !important;
-    }}
-    .stNumberInput button[aria-label="Decrease value"],
-    .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child {{
-        border:1px solid {RED} !important;
-    }}
-    .stNumberInput button[aria-label="Decrease value"]:hover,
-    .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child:hover {{
-        background:rgba(239,68,68,.18) !important;
-        box-shadow:0 0 0 2px rgba(239,68,68,.25) !important;
-    }}
-    .stNumberInput button[aria-label="Decrease value"] svg,
-    .stNumberInput button[aria-label="Decrease value"] svg * {{
-        fill:{RED} !important; stroke:{RED} !important;
-    }}
-    .stNumberInput button[aria-label="Increase value"],
-    .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child {{
-        border:1px solid {GREEN} !important;
-    }}
-    .stNumberInput button[aria-label="Increase value"]:hover,
-    .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child:hover {{
-        background:rgba(34,197,94,.18) !important;
-        box-shadow:0 0 0 2px rgba(34,197,94,.25) !important;
-    }}
-    .stNumberInput button[aria-label="Increase value"] svg,
-    .stNumberInput button[aria-label="Increase value"] svg * {{
-        fill:{GREEN} !important; stroke:{GREEN} !important;
-    }}
-    .stNumberInput input:focus {{
-        outline:none !important; border-color:{GREEN} !important; box-shadow:0 0 0 2px rgba(34,197,94,.35) !important;
-    }}
+    .stNumberInput button[aria-label="Decrease value"] {{ border:1px solid {RED} !important; }}
+    .stNumberInput button[aria-label="Increase value"] {{ border:1px solid {GREEN} !important; }}
 
-    /* ===== TABS — FORCE DARK ALWAYS ===== */
+    /* Tabs */
     .stTabs [role="tablist"] {{ border-bottom: 1px solid {BORDER} !important; }}
-    .stTabs [data-baseweb="tab"], .stTabs [role="tab"] {{
+    .stTabs [role="tab"] {{
         background:{BG2} !important; color:{TXT} !important;
         border:1px solid {BORDER} !important; border-bottom:none !important;
         margin-right:6px !important; border-top-left-radius:10px !important; border-top-right-radius:10px !important;
     }}
-    .stTabs [data-baseweb="tab"][aria-selected="true"], .stTabs [role="tab"][aria-selected="true"] {{
+    .stTabs [role="tab"][aria-selected="true"] {{
         background:#0f172a !important; border-color:{GREEN} !important; color:{TXT} !important;
-    }}
-    .stTabs [data-baseweb="tab"]:hover, .stTabs [role="tab"]:hover {{
-        background: rgba(34,197,94,.12) !important; color:{TXT} !important;
     }}
     .stTabs div[role="tabpanel"] {{
         background:{BG2} !important; border:1px solid {BORDER} !important; border-top:none !important;
         border-bottom-left-radius:12px !important; border-bottom-right-radius:12px !important;
         color:{TXT} !important; padding:12px 10px !important;
     }}
-    .stTabs [role="tab"], .stTabs [role="tab"] * {{ color:{TXT} !important; }}
 
-    /* ===== TABLES / METRICS ===== */
+    /* Tables / Metrics */
     [data-testid="stStyledTable"] thead th {{ background:#0f172a !important; color:{TXT} !important; }}
     [data-testid="stStyledTable"] tbody td {{ background:{BG2} !important; color:{TXT} !important; border-color:{GRID} !important; }}
     [data-testid="stTable"] th, [data-testid="stTable"] td {{ color:{TXT} !important; background:{BG2} !important; border-color:{BORDER} !important; }}
     [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT} !important; }}
 
-    /* ===== PLOTLY TOOLBAR ===== */
     .modebar {{ filter: invert(1) !important; }}
     </style>
     """, unsafe_allow_html=True)
@@ -200,7 +127,7 @@ def style_fig(fig: go.Figure, x_range=None) -> go.Figure:
 
 apply_theme()
 
-# ---------- Paths & sample ----------
+# ---------- Paths ----------
 try:
     APP_DIR = Path(__file__).resolve().parent
 except NameError:
@@ -210,9 +137,11 @@ DATA_DIR = ROOT / "data"
 ASSET_DIR = APP_DIR / "assets"
 DEFAULT_CSV = DATA_DIR / "factory_data.csv"
 
-EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475
-EMISSION_FACTOR_GAS = 2.0
+# ---------- Defaults ----------
+EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg/kWh
+EMISSION_FACTOR_GAS = 2.0                    # kg/m3
 
+# ---------- Utilities ----------
 @st.cache_data(show_spinner=False)
 def load_data(path: Path) -> pd.DataFrame:
     if path.exists():
@@ -238,7 +167,7 @@ def resample_df(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 def add_carbon_columns(df_in: pd.DataFrame, ef_elec: float) -> pd.DataFrame:
     out = df_in.copy()
-    out["co2e_kg"] = out["electricity_kwh"]*ef_elec + out["gas_m3"]*EMISSION_FACTOR_GAS
+    out["co2e_kg"] = out["electricity_kwh"]*float(ef_elec) + out["gas_m3"]*EMISSION_FACTOR_GAS
     out["pcf_kg_per_ton"] = np.where(out["production_ton"]>0, out["co2e_kg"]/out["production_ton"], np.nan)
     return out
 
@@ -276,7 +205,7 @@ with st.sidebar:
         df = load_data(DEFAULT_CSV)
         st.info("Loaded default / generated sample data.")
 
-    # 필수/선택 컬럼
+    # Required / optional columns
     base_required = {"timestamp","electricity_kwh","gas_m3","production_ton"}
     missing_base = base_required - set(df.columns)
     if missing_base:
@@ -329,7 +258,6 @@ with st.sidebar:
     product_opts = sorted(pd.Series(df["product"]).dropna().unique().tolist())
     sel_products = st.multiselect("Product", product_opts) if product_opts else []
 
-    # 기본값 월간(M): 3년 보기 좋음
     rule = st.selectbox("Time granularity", ["H","D","W","M"], index=3)
 
     st.header("External Features")
@@ -361,7 +289,7 @@ if sel_products:
     df_f = df_f[df_f["product"].isin(sel_products)]
 df_f = df_f.sort_values("timestamp").reset_index(drop=True)
 
-# 선택 범위가 너무 짧으면 자동 전체로
+# Too short? fallback to full
 full_span = (df["timestamp"].max() - df["timestamp"].min()).days + 1
 sel_span  = (df_f["timestamp"].max() - df_f["timestamp"].min()).days + 1 if not df_f.empty else 0
 if sel_span == 0 or sel_span < max(1, int(full_span * 0.30)):
@@ -379,32 +307,24 @@ last_val = df_g["co2e_kg"].iloc[-1] if not df_g.empty else 0.0
 c3.metric(f"Last {rule} CO₂e (kg)", f"{last_val:,.1f}")
 c4.metric("Periods", f"{len(df_g):,}")
 
-# ---------- Main Chart (ALWAYS FULL RANGE of original df) ----------
+# ---------- Main Chart ----------
 st.subheader("Time-series overview")
 if not df_g.empty:
     y = df_g["co2e_kg"].astype(float)
     x = pd.to_datetime(df_g["timestamp"])
-
-    # 포인트 수에 따라 모드 자동 결정 (1개면 markers, 그 이상은 lines+markers)
     trace_mode = "lines+markers" if len(df_g) >= 2 else "markers"
-
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=x, y=y,
-        mode=trace_mode,
-        name="CO₂e (kg)",
+        x=x, y=y, mode=trace_mode, name="CO₂e (kg)",
         line=dict(color=GREEN, width=2.4),
         marker=dict(size=6, color=GREEN)
     ))
-
-    # X축을 원본 df 전체 기간으로 고정 (min==max이면 생략)
     xmin = pd.to_datetime(df["timestamp"].min())
     xmax = pd.to_datetime(df["timestamp"].max())
     if pd.notna(xmin) and pd.notna(xmax) and xmin < xmax:
         fig = style_fig(fig, x_range=[xmin, xmax])
     else:
         fig = style_fig(fig)
-
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("No data in selected range.")
@@ -424,9 +344,9 @@ def section_stl(df_g: pd.DataFrame):
             s = s.asfreq(step, method="pad")
             stl = sm.tsa.STL(s, robust=True).fit()
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend", line=dict(color=GREEN)))
-            fig.add_trace(go.Scatter(x=stl.seasonal.index, y=stl.seasonal.values, name="Seasonal"))
-            fig.add_trace(go.Scatter(x=stl.resid.index, y=stl.resid.values, name="Residual"))
+            fig.add_trace(go.Scatter(x=stl.trend.index,   y=stl.trend.values,   name="Trend",    line=dict(color=GREEN)))
+            fig.add_trace(go.Scatter(x=stl.seasonal.index,y=stl.seasonal.values,name="Seasonal"))
+            fig.add_trace(go.Scatter(x=stl.resid.index,   y=stl.resid.values,   name="Residual"))
             st.plotly_chart(style_fig(fig), use_container_width=True)
         except Exception as e:
             st.info(f"STL skipped: {e}")
@@ -436,13 +356,11 @@ def section_anomaly(df_g: pd.DataFrame):
     st.subheader("Anomaly Detection")
     with st.expander("Detect anomalies"):
         if len(df_g) < 30:
-            st.info("Need at least 30 periods.")
-            return
+            st.info("Need at least 30 periods."); return
         X = df_g[["co2e_kg"]].fillna(method="ffill")
         iso = IsolationForest(contamination=0.02, random_state=42)
         labels = iso.fit_predict(X)
-        v = df_g.copy()
-        v["anomaly"] = (labels == -1)
+        v = df_g.copy(); v["anomaly"] = (labels == -1)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=v["timestamp"], y=v["co2e_kg"], mode="lines",
                                  name="CO₂e", line=dict(color=GREEN, width=2.0)))
@@ -582,6 +500,7 @@ def section_partner_hub():
 # ---------- PDF Export ----------
 def section_pdf():
     st.subheader("Export KPI / Report (PDF)")
+
     def build_pdf(df_summary: pd.DataFrame, kpis: dict) -> bytes:
         buf = BytesIO(); c = canvas.Canvas(buf, pagesize=A4); w,h = A4; y = h-50
         c.setFont("Helvetica-Bold", 16); c.drawString(40,y, "GreenOpt — Carbon Intelligence Report"); y-=25
@@ -612,5 +531,5 @@ section_carbon_pricing()
 section_partner_hub()
 section_pdf()
 
-# CSS 우선순위 보장 (마지막에 한 번 더)
+# CSS priority (apply again at bottom)
 apply_theme()
