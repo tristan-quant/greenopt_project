@@ -2,3 +2,8 @@ streamlit==1.35.0
 plotly==5.24.1
 numpy==1.26.4
 pandas==2.2.2
+scipy==1.12.0
+scikit-learn==1.4.2
+statsmodels==0.14.3     # STL(옵션)용
+pillow==10.4.0          # PIL
+reportlab==4.2.5        # PDF export
