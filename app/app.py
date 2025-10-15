@@ -1,5 +1,5 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (Dark+Green FINAL+AllRange)
+# GreenOpt — Digital ESG Engine (Dark+Green FINAL • Full-Range Fixed)
 # Forecast • Anomaly • Scope2 • CBAM • PDF • Partner Hub
 # =====================================================
 from __future__ import annotations
@@ -93,49 +93,51 @@ def init_theme():
       .stTextArea textarea {{ background:{BG2} !important; color:{TXT} !important; border:1px solid #374151 !important; }}
 
       /* Expanders and cards */
-      [data-testid="stExpander"] details {{ background:{BG2} !important; border:1px solid #374151 !important; border-radius:10px !important; }}
+      [data-testid="stExpander"] summary {{
+        background:{BG2} !important; color:{TXT} !important;
+        border:1px solid #374151 !important; border-radius:10px !important;
+      }}
+      [data-testid="stExpander"] details > div {{
+        background:{BG2} !important; border:1px solid #374151 !important; border-top:none !important;
+        border-radius:0 0 10px 10px !important;
+      }}
       .block {{ background:{BG2}; border-radius:16px; padding:16px; }}
 
       /* Tables/links */
       .stDataFrame, .stMarkdown, .stText, .stCaption {{ color:{TXT}; }}
+      [data-testid="stStyledTable"] thead th {{ background:#0F172A !important; color:{TXT} !important; }}
+      [data-testid="stStyledTable"] tbody tr td {{ background:{BG2} !important; color:{TXT} !important; border-color:#1F2937 !important; }}
       a {{ color:{GREEN}; }}
 
       /* Plotly toolbar icons */
       .modebar-group * {{ filter: invert(88%) !important; }}
 
-      /* ===== NumberInput stepper buttons (always green/red + hover) ===== */
-      .stNumberInput [aria-label="Increment value"],
-      .stNumberInput [aria-label="Increase value"] {{
-        background:{BG2} !important;
-        color:{TXT} !important;
-        border:1px solid {GREEN} !important;
-        border-radius:8px !important;
+      /* ===== NumberInput wrapper/steppers dark + green/red with hover ===== */
+      .stNumberInput div[data-baseweb="input"] {{
+        background:{BG2} !important; color:{TXT} !important;
+        border:1px solid #374151 !important; border-radius:10px !important;
+      }}
+      .stNumberInput div[data-baseweb="button-group"], .stNumberInput div[role="group"] {{
+        background:{BG2} !important; border:1px solid #374151 !important; border-left:none !important; border-radius:10px !important;
+      }}
+      .stNumberInput [aria-label="Increment value"], .stNumberInput [aria-label="Increase value"] {{
+        background:{BG2} !important; color:{TXT} !important; border:1px solid {GREEN} !important; border-radius:8px !important;
         transition: transform .05s ease, background-color .15s ease, box-shadow .15s ease;
       }}
-      .stNumberInput [aria-label="Decrement value"],
-      .stNumberInput [aria-label="Decrease value"] {{
-        background:{BG2} !important;
-        color:{TXT} !important;
-        border:1px solid #EF4444 !important;  /* red-500 */
-        border-radius:8px !important;
+      .stNumberInput [aria-label="Decrement value"], .stNumberInput [aria-label="Decrease value"] {{
+        background:{BG2} !important; color:{TXT} !important; border:1px solid #EF4444 !important; border-radius:8px !important;
         transition: transform .05s ease, background-color .15s ease, box-shadow .15s ease;
       }}
       .stNumberInput [aria-label="Increment value"]:hover {{
-        background: rgba(34,197,94,.12) !important; /* green tint */
-        box-shadow: 0 0 0 2px rgba(34,197,94,.25);
+        background: rgba(34,197,94,.12) !important; box-shadow: 0 0 0 2px rgba(34,197,94,.25);
       }}
       .stNumberInput [aria-label="Decrement value"]:hover {{
-        background: rgba(239,68,68,.12) !important; /* red tint */
-        box-shadow: 0 0 0 2px rgba(239,68,68,.25);
+        background: rgba(239,68,68,.12) !important; box-shadow: 0 0 0 2px rgba(239,68,68,.25);
       }}
       .stNumberInput [aria-label="Increment value"]:active,
-      .stNumberInput [aria-label="Decrement value"]:active {{
-        transform: translateY(1px) scale(0.98);
-      }}
+      .stNumberInput [aria-label="Decrement value"]:active {{ transform: translateY(1px) scale(0.98); }}
       .stNumberInput input:focus {{
-        outline: none !important;
-        box-shadow: 0 0 0 2px rgba(34,197,94,.35) !important;
-        border-color: {GREEN} !important;
+        outline:none !important; box-shadow:0 0 0 2px rgba(34,197,94,.35) !important; border-color:{GREEN} !important;
       }}
     </style>
     """, unsafe_allow_html=True)
@@ -244,8 +246,10 @@ with st.sidebar:
     else:
         ef_elec_input = st.number_input("EF (market-based kg/kWh)", value=0.0, step=0.01)
 
+    # ---------- Filters (All data vs Custom) ----------
     st.header("Filters")
-    # 전체 기간 계산 (데이터 기준)
+
+    # 전체 기간(데이터 기준)
     tmin_all = df["timestamp"].min().date()
     tmax_all = df["timestamp"].max().date()
 
@@ -259,26 +263,21 @@ with st.sidebar:
         key="range_mode_key"
     )
 
-    # 날짜 위젯의 세션 키를 데이터 범위로 고정 생성 (이전 상태 오염 방지)
-    date_key = f"date_range_{tmin_all.isoformat()}_{tmax_all.isoformat()}"
-
-    # '전체기간으로 리셋' 버튼 (Custom 모드에서만 활성)
-    left, right = st.columns([1, 2])
-    with left:
-        if st.button("Reset to full range", disabled=(range_mode=="All data"), use_container_width=True):
-            st.session_state.pop(date_key, None)
-
-    # 날짜 입력 위젯
-    start_date, end_date = st.date_input(
-        "Date range",
-        value=(tmin_all, tmax_all),
-        min_value=tmin_all,
-        max_value=tmax_all,
-        key=date_key,
-        disabled=(range_mode=="All data")
-    )
-    # All data 모드면 강제로 전체기간 사용
-    if range_mode == "All data":
+    # 날짜 위젯은 Custom에서만 렌더링 → 세션 상태 간섭 차단
+    if range_mode == "Custom":
+        start_date, end_date = st.date_input(
+            "Date range",
+            value=(tmin_all, tmax_all),
+            min_value=tmin_all,
+            max_value=tmax_all,
+            key="custom_date_range_key"
+        )
+        if st.button("Reset to full range", use_container_width=True):
+            if "custom_date_range_key" in st.session_state:
+                del st.session_state["custom_date_range_key"]
+            start_date, end_date = tmin_all, tmax_all
+    else:
+        # All data: 위젯을 만들지도 않고 전체기간 강제
         start_date, end_date = tmin_all, tmax_all
 
     sel_lines = st.multiselect("Line", sorted(df["line"].dropna().unique()) if "line" in df.columns else [])
