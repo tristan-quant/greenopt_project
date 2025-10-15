@@ -1,9 +1,8 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (Dark+Green, Cloud-Stable FINAL)
+# GreenOpt — Digital ESG Engine (Dark+Green FINAL)
 # Forecast • Anomaly • Scope2 • CBAM • PDF • Partner Hub
 # =====================================================
 from __future__ import annotations
-
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -16,7 +15,7 @@ from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
 from sklearn.metrics import mean_absolute_error
 from scipy.optimize import minimize
 
-# (옵션) Plotly / statsmodels
+# Optional libs
 _HAS_PLOTLY = False
 _HAS_STATSMODELS = False
 try:
@@ -35,8 +34,8 @@ except Exception:
 st.set_page_config(page_title="GreenOpt — Digital ESG Engine", layout="wide")
 
 GREEN = "#22C55E"
-BG    = "#0E1117"   # 앱 전체 배경
-BG2   = "#111827"   # 카드/사이드
+BG    = "#0E1117"
+BG2   = "#111827"
 TXT   = "#F3F4F6"
 
 def init_theme():
@@ -55,40 +54,53 @@ def init_theme():
         pio.templates["greenopt_dark"] = go.layout.Template(base)
         pio.templates.default = "greenopt_dark"
 
-    # 강제 CSS (사이드바/업로더/메트릭 포함)
+    # Strong CSS overrides (sidebar, uploader, metrics, code blocks, etc.)
     st.markdown(f"""
     <style>
       .stApp {{ background:{BG}; color:{TXT}; }}
       [data-testid="stHeader"] {{ background: transparent; }}
 
-      /* 사이드바 전체 다크 */
-      [data-testid="stSidebar"], .stSidebar, .css-1d391kg, .css-1lcbmhc {{
-        background:{BG2} !important; color:{TXT} !important;
-      }}
+      /* Sidebar dark */
+      [data-testid="stSidebar"], .stSidebar {{ background:{BG2} !important; color:{TXT} !important; }}
       [data-testid="stSidebar"] * {{ color:{TXT} !important; }}
 
-      /* 셀렉트/인풋 */
+      /* Inputs */
       div[data-baseweb="select"] > div {{ background:{BG2}; color:{TXT}; }}
       .stTextInput input, .stNumberInput input, .stDateInput input {{ background:{BG2}; color:{TXT}; }}
 
-      /* 업로더(흰색 패치 제거) */
+      /* File uploader: dropzone/buttons/text fully dark */
+      [data-testid="stFileUploader"] * {{ color:{TXT} !important; }}
       [data-testid="stFileUploader"] section div div div {{
-          background-color: {BG2} !important;
-          color: {TXT} !important;
-          border: 1px solid #374151 !important;
-          border-radius: 8px !important;
+        background:{BG2} !important; border:1px solid #374151 !important; border-radius:10px !important;
       }}
-      [data-testid="stFileUploader"] section div div span {{ color: {TXT} !important; }}
+      [data-testid="stFileUploaderDropzone"] {{
+        background:{BG2} !important; border:1px dashed #4B5563 !important; border-radius:10px !important;
+      }}
+      [data-testid="stFileUploader"] button, [data-testid="stFileUploader"] [role="button"] {{
+        background:{BG2} !important; color:{TXT} !important; border:1px solid #374151 !important;
+      }}
+      [data-testid="stFileUploader"] input[type="file"]::file-selector-button {{
+        background:{BG2}; color:{TXT}; border:1px solid #374151; border-radius:8px;
+      }}
 
-      /* 메트릭 텍스트 완전 흰색 */
+      /* Metrics text full white */
       [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT} !important; }}
 
-      /* 카드/표/링크 */
+      /* Code / JSON / textarea => dark */
+      pre, code, kbd, samp {{ background:{BG2} !important; color:{TXT} !important; border:1px solid #374151 !important; border-radius:8px !important; }}
+      [data-testid="stJson"] pre {{ background:{BG2} !important; color:{TXT} !important; border:1px solid #374151 !important; border-radius:8px !important; }}
+      [data-testid="stMarkdownContainer"] code {{ background:{BG2} !important; color:{TXT} !important; }}
+      .stTextArea textarea {{ background:{BG2} !important; color:{TXT} !important; border:1px solid #374151 !important; }}
+
+      /* Expanders and cards */
+      [data-testid="stExpander"] details {{ background:{BG2} !important; border:1px solid #374151 !important; border-radius:10px !important; }}
       .block {{ background:{BG2}; border-radius:16px; padding:16px; }}
+
+      /* Tables/links */
       .stDataFrame, .stMarkdown, .stText, .stCaption {{ color:{TXT}; }}
       a {{ color:{GREEN}; }}
 
-      /* Plotly 모드바 아이콘 */
+      /* Plotly toolbar icons */
       .modebar-group * {{ filter: invert(88%) !important; }}
     </style>
     """, unsafe_allow_html=True)
@@ -122,8 +134,8 @@ ASSET_DIR = APP_DIR / "assets"
 DEFAULT_CSV = DATA_DIR / "factory_data.csv"
 
 # ---------- Constants ----------
-EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg CO2e/kWh (예시)
-EMISSION_FACTOR_GAS = 2.0                    # kg CO2e/m3
+EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475
+EMISSION_FACTOR_GAS = 2.0
 
 # ---------- Data helpers ----------
 @st.cache_data(show_spinner=False)
@@ -131,7 +143,6 @@ def load_data(path: Path) -> pd.DataFrame:
     if path.exists():
         df = pd.read_csv(path)
     else:
-        # 3년치 시간단위 샘플 생성
         periods = 24*365*3
         idx = pd.date_range("2023-01-01", periods=periods, freq="H")
         rng = np.random.default_rng(42)
@@ -199,8 +210,18 @@ with st.sidebar:
         ef_elec_input = st.number_input("EF (market-based kg/kWh)", value=0.0, step=0.01)
 
     st.header("Filters")
-    tmin, tmax = df["timestamp"].min().date(), df["timestamp"].max().date()
-    start_date, end_date = st.date_input("Date range", value=(tmin, tmax), min_value=tmin, max_value=tmax)
+    # full-range defaults
+    tmin_all, tmax_all = df["timestamp"].min().date(), df["timestamp"].max().date()
+    date_key = f"date_range_{tmin_all.isoformat()}_{tmax_all.isoformat()}"
+    if st.button("Reset to full range", use_container_width=True):
+        st.session_state.pop(date_key, None)
+
+    start_date, end_date = st.date_input(
+        "Date range",
+        value=(tmin_all, tmax_all),
+        min_value=tmin_all, max_value=tmax_all,
+        key=date_key
+    )
     sel_lines = st.multiselect("Line", sorted(df["line"].dropna().unique()) if "line" in df.columns else [])
     sel_products = st.multiselect("Product", sorted(df["product"].dropna().unique()) if "product" in df.columns else [])
     rule = st.selectbox("Time granularity", ["H","D","W","M"], index=1)
@@ -221,7 +242,7 @@ with st.sidebar:
             base = 70 + 20*np.sin(2*np.pi*(t_days/30)) + np.random.normal(0, 5, len(df))
             df["utilization_pct"] = np.clip(base, 20, 100)
 
-# ---------- Apply filters (기간 전체 보장: end_date 23:59:59) ----------
+# ---------- Apply filters (end_date 23:59:59 포함) ----------
 mask = (
     (df["timestamp"] >= pd.to_datetime(start_date))
     & (df["timestamp"] <= pd.to_datetime(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59))
@@ -274,7 +295,7 @@ else:
 st.subheader("Seasonal-Trend Decomposition (STL)")
 with st.expander("Show STL"):
     if not _HAS_STATSMODELS:
-        st.info("statsmodels 미설치로 STL 생략.")
+        st.info("statsmodels not installed — skip STL.")
     else:
         try:
             s = df_g.set_index("timestamp")["co2e_kg"]
@@ -316,7 +337,7 @@ with st.expander("Detect anomalies"):
     else:
         st.info("Need at least 30 periods.")
 
-# ---------- Forecast (경량) ----------
+# ---------- Forecast (light) ----------
 st.subheader("Forecasting")
 with st.expander("Train & forecast"):
     horizon = st.slider("Forecast horizon (periods)", 7 if rule=="D" else 24, 60, 14)
@@ -344,7 +365,7 @@ with st.expander("Train & forecast"):
     else:
         st.info("Not enough data to forecast.")
 
-# ---------- Optimization (간단) ----------
+# ---------- Optimization ----------
 st.subheader("Optimization (toy)")
 with st.expander("Run optimization"):
     scenario = st.selectbox("Scenario", ["Min Cost (CO₂e cap)","Min Emissions (Production target)"])
@@ -369,8 +390,22 @@ with st.expander("Run optimization"):
     e_opt, g_opt = float(res.x[0]), float(res.x[1])
     cost_opt = price_e*e_opt + price_g*g_opt
     co2e_opt = ef_e*e_opt + ef_g*g_opt
-    st.write({"electricity": round(e_opt,2), "gas": round(g_opt,2),
-              "cost": round(cost_opt,2), "co2e": round(co2e_opt,2), "success": bool(res.success)})
+
+    # ✅ metrics + table (no code box)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Electricity (unit)", f"{e_opt:,.2f}")
+    m2.metric("Gas (unit)",         f"{g_opt:,.2f}")
+    m3.metric("Total Cost",         f"{cost_opt:,.2f}")
+    m4.metric("CO₂e (kg)",          f"{co2e_opt:,.2f}")
+
+    res_df = pd.DataFrame([{
+        "electricity": round(e_opt, 2),
+        "gas": round(g_opt, 2),
+        "cost": round(cost_opt, 2),
+        "co2e": round(co2e_opt, 2),
+        "success": bool(res.success)
+    }])
+    st.dataframe(res_df, use_container_width=True)
 
 # ---------- Carbon Pricing ----------
 st.subheader("Carbon Pricing")
@@ -434,8 +469,9 @@ with tab_t:
         "co2e_kg": df_g["co2e_kg"].round(6)
     }).to_csv(index=False)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    st.code(f"SHA256(data_slice) = {digest}")
-    st.caption(f"Scope2: {scope2_method} | EF_electricity(kg/kWh): {ef_elec_input} | EF_gas(kg/m³): {2.0}")
+    # ✅ no code box — read-only field
+    st.text_input("SHA256(data_slice)", value=digest, disabled=True)
+    st.caption(f"Scope2: {scope2_method} • EF_electricity(kg/kWh): {ef_elec_input} • EF_gas(kg/m³): {EMISSION_FACTOR_GAS}")
 
 # ---------- Export PDF ----------
 st.subheader("Export KPI / Report (PDF)")
@@ -446,8 +482,7 @@ def build_pdf(df_summary: pd.DataFrame, kpis: dict, note: str = "") -> bytes:
     c.drawString(40,y, f"Period: {str(df_summary['timestamp'].min().date())} ~ {str(df_summary['timestamp'].max().date())}"); y-=25
     c.setFont("Helvetica-Bold", 12); c.drawString(40,y, "KPIs"); y-=18
     c.setFont("Helvetica", 10)
-    for k,v in kpis.items():
-        c.drawString(50,y, f"- {k}: {v}"); y-=14
+    for k,v in kpis.items(): c.drawString(50,y, f"- {k}: {v}"); y-=14
     c.showPage(); c.save(); buf.seek(0); return buf.read()
 
 if not df_g.empty:
