@@ -871,7 +871,7 @@ with tab_sandbox:
 
 # ---------- Carbon News (RSS) ----------
 with tab_news:
-    st.subheader("🌎 실시간 탄소·기후 뉴스")
+    st.subheader(" 실시간 탄소·기후 뉴스")
     st.caption("Carbon Brief, Reuters Environment 등 RSS를 이용해 헤드라인을 집계합니다.")
     sources = [
         ("Carbon Brief", "https://www.carbonbrief.org/feed/"),
