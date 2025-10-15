@@ -1,13 +1,13 @@
 # =====================================================
 # GreenOpt — Carbon Intelligence Platform (FINAL • Multi-Tab • Ultra-Dark)
-# One-file Streamlit app (put this file at: greenopt_project/app/app.py)
-# Python 3.11.x recommended (runtime.txt -> "3.11.9")
+# Put this file at: greenopt_project/app/app.py
+# Use Python 3.11.x (repo root runtime.txt -> "3.11.9")
 # =====================================================
 from __future__ import annotations
 
 from pathlib import Path
 from io import BytesIO
-import json, uuid, hashlib, math
+import json, uuid, hashlib
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ from sklearn.ensemble import IsolationForest, GradientBoostingRegressor, RandomF
 from sklearn.metrics import mean_absolute_error
 from scipy.optimize import minimize
 
-# Optional libs (guard imports)
+# Optional PDF export (guard import)
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -188,24 +188,16 @@ def plot_main_series(df_g: pd.DataFrame, df_full: pd.DataFrame):
         st.warning("No data in selected range."); return
     y = df_g["co2e_kg"].astype(float)
     x = pd.to_datetime(df_g["timestamp"])
-    trace_mode = "lines+markers"  # force line even on short windows
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=x, y=y, mode=trace_mode, name="CO₂e (kg)",
+        x=x, y=y, mode="lines+markers", name="CO₂e (kg)",
         line=dict(color=GREEN, width=2.4),
         marker=dict(size=6, color=GREEN)
     ))
     xmin = pd.to_datetime(df_full["timestamp"].min())
     xmax = pd.to_datetime(df_full["timestamp"].max())
-    if pd.notna(xmin) and pd.notna(xmax) and xmin < xmax:
-        fig = style_fig(fig, x_range=[xmin, xmax])
-    else:
-        fig = style_fig(fig)
+    fig = style_fig(fig, x_range=[xmin, xmax] if (pd.notna(xmin) and pd.notna(xmax) and xmin<xmax) else None)
     st.plotly_chart(fig, use_container_width=True)
-
-def safe_mean(x):
-    x = pd.to_numeric(x, errors="coerce")
-    return float(np.nanmean(x)) if np.isfinite(np.nanmean(x)) else np.nan
 
 # ---------- Header with logo ----------
 lc, rc = st.columns([0.14, 0.86])
@@ -225,7 +217,7 @@ with lc:
         st.caption("Tip: place logo at app/assets/greenopt_logo.png")
 with rc:
     st.title("GreenOpt — AI Carbon Intelligence Platform")
-    st.caption("Forecast • Optimization • Product Carbon • Carbon Market • Supply Chain • Partner Hub")
+    st.caption("Forecast • Product Carbon • Carbon Market • Supply Chain • Partner Hub • Sandbox")
 
 st.divider()
 
@@ -241,7 +233,6 @@ with st.sidebar:
         df = load_data(DEFAULT_CSV)
         st.info("Loaded default / generated sample data.")
 
-    # Required / optional columns
     base_required = {"timestamp","electricity_kwh","gas_m3","production_ton"}
     missing_base = base_required - set(df.columns)
     if missing_base:
@@ -352,10 +343,10 @@ if len(df_g) < 6:
 # =========================
 # TABS
 # =========================
-tab_dash, tab_prod, tab_market, tab_supply, tab_studio, tab_partner, tab_export, tab_api = st.tabs([
+tab_dash, tab_prod, tab_market, tab_supply, tab_studio, tab_partner, tab_export, tab_api, tab_sandbox = st.tabs([
     "Dashboard", "Product Carbon Analyzer", "Carbon Market", 
     "Supply Chain Map", "AI Forecast Studio", "Partner Hub",
-    "Export / Reports", "Data & API"
+    "Export / Reports", "Data & API", "Sandbox"
 ])
 
 # ---------- Dashboard ----------
@@ -434,7 +425,7 @@ with tab_prod:
     st.subheader("제품별 탄소발자국(PCF) 자동 계산기")
     st.caption("CSV 포맷 예시: product, process, activity_value, emission_factor_kg_per_unit")
 
-    pcol1, pcol2 = st.columns([0.6, 0.4])
+    pcol1, pcol2 = st.columns([0.58, 0.42])
 
     with pcol1:
         p_up = st.file_uploader("Upload product LCA CSV", type=["csv"], key="pcf")
@@ -470,11 +461,58 @@ with tab_prod:
             st.info(f"Sankey unavailable: {e}")
 
     st.divider()
-    st.caption("Tip: 동일 산업군 템플릿을 표준화하면, 배터리 1개당 CO₂e를 정밀 산출하고 제품/공정 비교가 가능합니다.")
+    # === 시나리오 조작 (프로세스 가중치) ===
+    st.markdown("### 시나리오 조작 (공정 효율/가중치)")
+    st.caption("예: 공정 효율화로 전기 -10%, 가스 -20% 적용")
+
+    if "pcf_table" not in st.session_state:
+        st.session_state.pcf_table = p_df.copy()
+    else:
+        st.session_state.pcf_table = p_df.copy()
+
+    processes = st.session_state.pcf_table["process"].astype(str).unique().tolist()
+    weights = {}
+    cols = st.columns(min(4, max(1, len(processes)))) if processes else []
+    for i, proc in enumerate(processes):
+        col = cols[i % max(1, len(cols))]
+        weights[proc] = col.slider(f"{proc} 조정(%)", -50, 50, 0, help="음수면 감소, 양수면 증가")
+
+    adj = st.session_state.pcf_table.copy()
+    adj["adj_activity"] = adj.apply(
+        lambda r: r["activity_value"] * (1 + (weights.get(str(r["process"]), 0) / 100.0)),
+        axis=1
+    )
+    adj["adj_co2e_kg"] = adj["adj_activity"] * adj["emission_factor_kg_per_unit"]
+
+    c1, c2 = st.columns(2)
+    c1.metric("Adjusted PCF (kg/unit)", f"{adj['adj_co2e_kg'].sum():,.2f}")
+    delta = adj["adj_co2e_kg"].sum() - p_df["co2e_kg"].sum()
+    c2.metric("Δ vs. Base (kg/unit)", f"{delta:+,.2f}")
+
+    st.dataframe(adj[["product","process","activity_value","adj_activity",
+                      "emission_factor_kg_per_unit","co2e_kg","adj_co2e_kg"]],
+                 use_container_width=True)
+
+    s1, s2 = st.columns(2)
+    scenario_name = s1.text_input("시나리오 이름", value="scenario_1")
+    if s1.button("시나리오 저장(JSON)", use_container_width=True):
+        pack = {
+            "name": scenario_name,
+            "weights_pct": weights,
+            "base_total": float(p_df["co2e_kg"].sum()),
+            "adj_total": float(adj["adj_co2e_kg"].sum())
+        }
+        b = json.dumps(pack, ensure_ascii=False, indent=2).encode("utf-8")
+        st.download_button("⬇️ Download Scenario JSON", data=b, file_name=f"{scenario_name}.json", mime="application/json")
+    uploaded_scn = s2.file_uploader("시나리오 불러오기(JSON)", type=["json"], key="pcf_scn")
+    if uploaded_scn:
+        scn = json.load(uploaded_scn)
+        st.json(scn)
+        st.info("불러온 시나리오 기준으로 위 슬라이더를 수동 조정하세요. (자동 반영은 다음 버전에서 지원)")
 
 # ---------- Carbon Market (Emission Allowances) ----------
 with tab_market:
-    st.subheader("탄소배출권 시세 예측 (Beta)")
+    st.subheader("탄소배출권 시세 예측 + 의사결정")
     st.caption("CSV 포맷 예시: date, price (e.g., EU ETS / KR ETS / CCA). 업로드가 없으면 샘플 시계열 사용.")
     m_up = st.file_uploader("Upload carbon price CSV", type=["csv"], key="mkt")
     if m_up:
@@ -491,9 +529,10 @@ with tab_market:
 
     st.line_chart(price.set_index("timestamp")["price"])
 
+    pred = None  # to make linter happy
     if len(price) >= 60:
-        with st.expander("Train & forecast price"):
-            horizon = st.slider("Horizon (days)", 15, 120, 60)
+        with st.expander("Train & forecast price", expanded=True):
+            horizon = st.slider("Horizon (days)", 15, 180, 60)
             dff = price.copy()
             dff["lag1"] = dff["price"].shift(1)
             dff["lag7"] = dff["price"].shift(7)
@@ -512,19 +551,99 @@ with tab_market:
                 fig.add_trace(go.Scatter(x=te["timestamp"], y=y_te, name="Actual"))
                 fig.add_trace(go.Scatter(x=te["timestamp"], y=pred, name="Forecast", line=dict(color=GREEN, width=2.2)))
                 st.plotly_chart(style_fig(fig), use_container_width=True)
-                # cost impact (connect to df_g)
-                if not df_g.empty:
-                    latest_ton = st.number_input("Apply to emissions (tCO₂e)", value=float(df_g["co2e_kg"].sum()/1000.0), step=10.0)
-                    st.caption("예측 가격 x 배출량(t) = 예상 비용")
-                    cost_forecast = pd.DataFrame({
+
+                # === AI Directional Decision Engine ===
+                st.divider()
+                st.markdown("### 🤖 AI Decision Advisor — 시장 방향성 예측 판단")
+
+                if pred is not None and len(pred) > 2:
+                    df_dec = pd.DataFrame({
                         "timestamp": te["timestamp"],
-                        "cost": (pred * latest_ton)
+                        "actual": y_te.values,
+                        "forecast": pred
                     })
-                    st.line_chart(cost_forecast.set_index("timestamp")["cost"])
+                    df_dec["change_pct"] = df_dec["forecast"].pct_change() * 100
+                    trend_mean = float(df_dec["change_pct"].mean())
+                    volatility = float(df_dec["change_pct"].std())
+                    conf_score = max(0, min(100, 100 - volatility * 5))  # 변동성 기반 단순 신뢰도
+
+                    # 방향성 판단
+                    if trend_mean > 0.8:
+                        decision = "📈 상승 가능성 높음 — 매수 권고 (Long)"
+                        color = GREEN
+                    elif trend_mean < -0.8:
+                        decision = "📉 하락 가능성 높음 — 매도 권고 (Short)"
+                        color = RED
+                    else:
+                        decision = "⚖️ 횡보 예상 — 관망 권고 (Hold)"
+                        color = "#fbbf24"
+
+                    # 시나리오 (±10%)
+                    optimistic = pred * 1.10
+                    pessimistic = pred * 0.90
+                    base = pred
+                    df_scn = pd.DataFrame({
+                        "timestamp": te["timestamp"],
+                        "Optimistic (+10%)": optimistic,
+                        "Base": base,
+                        "Pessimistic (-10%)": pessimistic
+                    })
+
+                    # 시나리오 차트
+                    fig_scn = go.Figure()
+                    for col, ccol in zip(["Optimistic (+10%)","Base","Pessimistic (-10%)"],
+                                         [GREEN, "#9ca3af", RED]):
+                        fig_scn.add_trace(go.Scatter(x=df_scn["timestamp"], y=df_scn[col], mode="lines", name=col,
+                                                     line=dict(width=2.0, color=ccol)))
+                    st.plotly_chart(style_fig(fig_scn), use_container_width=True)
+
+                    # KPI 박스
+                    k1, k2, k3 = st.columns(3)
+                    last_pred = float(pred[-1])
+                    first_pred = float(pred[0])
+                    expected_return = (last_pred - first_pred) / max(1e-9, first_pred) * 100.0
+                    k1.metric("Expected Return(%)", f"{expected_return:+.2f}%")
+                    k2.metric("Volatility(σ, %)", f"{volatility:.2f}")
+                    k3.metric("Confidence", f"{conf_score:.0f} / 100")
+
+                    # Decision Box
+                    st.markdown(
+                        f"<div style='border:1px solid {color}; padding:12px; border-radius:10px; background:#0f172a'>"
+                        f"<b>Decision:</b> <span style='color:{color}'>{decision}</span><br>"
+                        f"<small>기준: 예측 변화율 평균, 변동성 보정</small>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+
+                    # 비용 영향도 (공장 배출량과 연결)
+                    st.markdown("##### 비용 영향 추정 (예측 가격 × 배출량)")
+                    if not df_g.empty:
+                        latest_ton = st.number_input("Apply to emissions (tCO₂e)", value=float(df_g["co2e_kg"].sum()/1000.0), step=10.0)
+                        cost_forecast = pd.DataFrame({
+                            "timestamp": te["timestamp"],
+                            "cost (Base)": base * latest_ton,
+                            "cost (+10%)": optimistic * latest_ton,
+                            "cost (-10%)": pessimistic * latest_ton,
+                        })
+                        st.line_chart(cost_forecast.set_index("timestamp"))
+                    else:
+                        st.info("Factory data not loaded — 비용 영향 추정을 생략합니다.")
             else:
                 st.info("Not enough data after lag features.")
     else:
         st.info("Need at least 60 daily points for forecasting.")
+
+    st.divider()
+    # Trading simulator (간단 PnL)
+    st.markdown("### Trading Simulator (가상 포지션)")
+    with st.form("trade_form", clear_on_submit=False):
+        side = st.selectbox("포지션", ["Long", "Short"])
+        qty  = st.number_input("수량 (lots)", min_value=1, value=10, step=1)
+        entry_price = st.number_input("진입가", value=float(price['price'].iloc[-1]), step=0.1)
+        submitted = st.form_submit_button("포지션 평가")
+    if submitted:
+        latest = float(price["price"].iloc[-1])
+        pnl = (latest - entry_price) * qty if side=="Long" else (entry_price - latest) * qty
+        st.metric("현재 PnL", f"{pnl:,.2f}")
 
 # ---------- Supply Chain Map (Scope 3 — simple placeholder) ----------
 with tab_supply:
@@ -668,6 +787,59 @@ with tab_api:
     }
     st.code(json.dumps(example, indent=2, ensure_ascii=False))
     st.caption("Note: 실제 API 게이트웨이는 별도 배포에서 제공. 여기서는 스키마와 테스트 업로드 경험을 제공합니다.")
+
+# ---------- Sandbox (Editable Data) ----------
+with tab_sandbox:
+    st.subheader("데이터 편집 & 즉시 반영 (Sandbox)")
+
+    if "working_df" not in st.session_state:
+        st.session_state.working_df = df_f.tail(500).copy()
+
+    st.caption("아래 표를 직접 수정하세요. *timestamp, electricity_kwh, gas_m3, production_ton* 은 필수.")
+    edited = st.data_editor(
+        st.session_state.working_df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "timestamp": st.column_config.DatetimeColumn("timestamp"),
+            "electricity_kwh": st.column_config.NumberColumn("electricity_kwh", help="kWh"),
+            "gas_m3": st.column_config.NumberColumn("gas_m3", help="m³"),
+            "production_ton": st.column_config.NumberColumn("production_ton", help="ton"),
+        },
+        key="editor_working_df",
+        height=420
+    )
+
+    c1, c2, c3 = st.columns(3)
+    if c1.button("변경 저장(세션)", use_container_width=True):
+        st.session_state.working_df = edited.copy()
+        st.success("세션에 저장되었습니다.")
+
+    if c2.button("원본으로 되돌리기", use_container_width=True):
+        st.session_state.working_df = df_f.tail(500).copy()
+        st.experimental_rerun()
+
+    if c3.button("재계산(탄소지표/집계)", use_container_width=True):
+        tmp = st.session_state.working_df.copy()
+        tmp["timestamp"] = pd.to_datetime(tmp["timestamp"]).dt.tz_localize(None)
+        tmp = tmp.sort_values("timestamp").reset_index(drop=True)
+        tmp_c = add_carbon_columns(tmp, ef_elec_input)
+        tmp_g = resample_df(tmp_c, rule)
+        if len(tmp_g) < 6:
+            fallback = {"M": "W", "W": "D", "D": "H"}
+            if rule in fallback:
+                tmp_g = resample_df(tmp_c, fallback[rule])
+        st.session_state.sandbox_df_g = tmp_g
+        st.success("재계산 완료 — 아래 차트/지표 확인")
+
+    if "sandbox_df_g" in st.session_state and not st.session_state.sandbox_df_g.empty:
+        st.markdown("### Sandbox 결과")
+        kpi_cards(st.session_state.sandbox_df_g, rule)
+        plot_main_series(st.session_state.sandbox_df_g, st.session_state.working_df)
+        csv_bytes = st.session_state.sandbox_df_g.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Sandbox 집계 CSV 다운로드", data=csv_bytes, file_name="sandbox_aggregated.csv", mime="text/csv")
+    else:
+        st.info("위에서 표를 수정 → ‘재계산’을 누르면 여기 결과가 뜹니다.")
 
 # ---------- FINAL CSS priority ----------
 apply_theme()
