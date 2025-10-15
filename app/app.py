@@ -910,9 +910,11 @@ with tab_news:
 
 # ---------- Footer ----------
 st.markdown(
-    f"<div style='margin-top:18px; padding:10px 12px; border-top:1px solid {BORDER}; color:{SILVER};'>"
-    f"© {datetime.datetime.now().year} GreenOpt • Luxe Black & Emerald Theme • ESG by Design"
-    f"</div>", unsafe_allow_html=True
+    f"<div style='margin-top:18px; padding:10px 12px; border-top:1px solid {BORDER}; "
+    f"color:{TXT}; text-align:center; font-size:0.9rem; opacity:0.7;'>"
+    f"© {datetime.datetime.now().year} Taeyoon Ham • GreenOpt • ESG by Design"
+    f"</div>",
+    unsafe_allow_html=True
 )
 
 # Final CSS priority
