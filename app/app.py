@@ -141,7 +141,7 @@ ASSET_DIR = APP_DIR / "assets"
 DEFAULT_CSV = DATA_DIR / "factory_data.csv"
 
 # ---------- Defaults ----------
-EF_ELECTRICITY_DEFAULT = 0.475  # kg/kWh
+EF_ELECTRICITY_DEFAULT = 0.475  # kg/
 EF_GAS = 2.0                    # kg/m3
 
 # ---------- Utilities ----------
@@ -569,13 +569,13 @@ with tab_market:
 
                     # 방향성 판단
                     if trend_mean > 0.8:
-                        decision = "📈 상승 가능성 높음 — 매수 권고 (Long)"
+                        decision = " 상승 가능성 높음 — 매수 권고 (Long)"
                         color = GREEN
                     elif trend_mean < -0.8:
-                        decision = "📉 하락 가능성 높음 — 매도 권고 (Short)"
+                        decision = " 하락 가능성 높음 — 매도 권고 (Short)"
                         color = RED
                     else:
-                        decision = "⚖️ 횡보 예상 — 관망 권고 (Hold)"
+                        decision = " 횡보 예상 — 관망 권고 (Hold)"
                         color = "#fbbf24"
 
                     # 시나리오 (±10%)
