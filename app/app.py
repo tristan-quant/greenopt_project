@@ -1,10 +1,11 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (FINAL INTEGRATED)
-# Dark UI • Full-range charts • Forecast • STL(optional) • Anomaly
-# Optimization • Carbon Pricing • Partner Hub • PDF Export
+# GreenOpt — Digital ESG Engine (FINAL • All-in-One)
+# Dark UI • Full-range charts • Forecast • STL(optional)
+# Anomaly • Optimization • Carbon Pricing • Partner Hub • PDF
 # =====================================================
 from __future__ import annotations
 from pathlib import Path
+import json, uuid, hashlib
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -16,14 +17,11 @@ from scipy.optimize import minimize
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-import hashlib
-import json
-import uuid
 
-# ---------- 0) Page ----------
+# ---------- Page ----------
 st.set_page_config(page_title="GreenOpt — Carbon Intelligence Platform", layout="wide")
 
-# ---------- 1) Theme (Dark + Green) ----------
+# ---------- Theme (Dark + Green) ----------
 BG   = "#0B0E11"
 BG2  = "#111827"
 TXT  = "#F3F4F6"
@@ -62,9 +60,9 @@ def apply_theme():
       .stNumberInput [data-baseweb="button"] {{ background:{BG2}!important; color:{TXT}!important; }}
       .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child {{ border:1px solid #EF4444!important; }}
       .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child  {{ border:1px solid {GREEN}!important; }}
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child svg, 
+      .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child svg,
       .stNumberInput div[role="group"] > [data-baseweb="button"]:first-child svg * {{ fill:#EF4444!important; stroke:#EF4444!important; }}
-      .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child svg,  
+      .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child svg,
       .stNumberInput div[role="group"] > [data-baseweb="button"]:last-child svg *  {{ fill:{GREEN}!important; stroke:{GREEN}!important; }}
 
       /* Tabs (full dark) */
@@ -85,13 +83,11 @@ def apply_theme():
       [role="option"] {{ background:{BG2}!important; color:{TXT}!important; }}
       [role="option"][aria-selected="true"], [role="option"]:hover {{ background:rgba(34,197,94,.12)!important; }}
 
-      /* Expanders / Tables */
+      /* Expanders / Tables / Metrics */
       [data-testid="stExpander"] summary,
       [data-testid="stExpander"] details {{ background:{BG2}!important; color:{TXT}!important; border:1px solid #374151!important; border-radius:10px!important; }}
       [data-testid="stStyledTable"] thead th {{ background:#0F172A!important; color:{TXT}!important; }}
       [data-testid="stStyledTable"] tbody td {{ background:{BG2}!important; color:{TXT}!important; border-color:#1F2937!important; }}
-
-      /* Metrics text */
       [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color:{TXT}!important; }}
       a {{ color:{GREEN}; }}
     </style>
@@ -99,7 +95,7 @@ def apply_theme():
 
 apply_theme()
 
-# ---------- 2) Paths & Data ----------
+# ---------- Paths & sample ----------
 try:
     APP_DIR = Path(__file__).resolve().parent
 except NameError:
@@ -117,7 +113,6 @@ def load_data(path: Path) -> pd.DataFrame:
     if path.exists():
         df = pd.read_csv(path)
     else:
-        # fallback 3-year hourly sample
         periods = 24*365*3
         idx = pd.date_range("2023-01-01", periods=periods, freq="H")
         rng = np.random.default_rng(42)
@@ -126,6 +121,7 @@ def load_data(path: Path) -> pd.DataFrame:
             "electricity_kwh": rng.uniform(80, 220, periods),
             "gas_m3": rng.uniform(8, 35, periods),
             "production_ton": rng.uniform(4, 18, periods),
+            # line/product가 없는 CSV도 많으므로 샘플엔 넣어두지만, 실제 처리에선 optional로 취급
             "line": rng.choice(["A-Line","B-Line","C-Line"], periods, p=[0.4,0.4,0.2]),
             "product": rng.choice(["Widget-X","Widget-Y","Widget-Z"], periods),
         })
@@ -142,9 +138,9 @@ def add_carbon_columns(df_in: pd.DataFrame, ef_elec: float) -> pd.DataFrame:
     out["pcf_kg_per_ton"] = np.where(out["production_ton"]>0, out["co2e_kg"]/out["production_ton"], np.nan)
     return out
 
-# ---------- 3) Header with logo ----------
-left, right = st.columns([0.14, 0.86])
-with left:
+# ---------- Header with logo ----------
+lc, rc = st.columns([0.14, 0.86])
+with lc:
     logo = None
     for p in [
         ASSET_DIR / "greenopt_logo.png",
@@ -157,14 +153,14 @@ with left:
     if logo:
         st.image(Image.open(logo))
     else:
-        st.caption("Tip: put logo at app/assets/greenopt_logo.png")
-with right:
+        st.caption("Tip: place logo at app/assets/greenopt_logo.png")
+with rc:
     st.title("GreenOpt — AI Carbon Intelligence Platform")
     st.caption("Forecast • Optimization • Anomaly • Digital ESG")
 
 st.divider()
 
-# ---------- 4) Sidebar ----------
+# ---------- Sidebar ----------
 with st.sidebar:
     st.header("Data")
     up = st.file_uploader("Upload CSV (3+ years preferred)", type=["csv"])
@@ -176,22 +172,34 @@ with st.sidebar:
         df = load_data(DEFAULT_CSV)
         st.info("Loaded default / generated sample data.")
 
-    required = {"timestamp","electricity_kwh","gas_m3","production_ton","line","product"}
-    miss = required - set(df.columns)
-    if miss:
-        st.error(f"Missing columns: {', '.join(sorted(miss))}")
+    # ---- 필수/선택 컬럼 검사 (line/product는 선택) ----
+    base_required = {"timestamp","electricity_kwh","gas_m3","production_ton"}
+    missing_base = base_required - set(df.columns)
+    if missing_base:
+        st.error(f"Missing required columns: {', '.join(sorted(missing_base))}")
         st.stop()
+
+    optional_warnings = []
+    if "line" not in df.columns:
+        df["line"] = "All-Line"
+        optional_warnings.append("line")
+    if "product" not in df.columns:
+        df["product"] = "All-Product"
+        optional_warnings.append("product")
+    if optional_warnings:
+        st.info("Optional columns not found → using single bucket: " + ", ".join(optional_warnings))
 
     st.header("Scope 2 method")
     scope2 = st.selectbox("Electricity EF method", ["Location-based","Market-based"], index=0)
-    ef_elec_input = st.number_input("EF (kg/kWh)" if scope2=="Location-based" else "EF (market-based, kg/kWh)",
-                                    value=float(EMISSION_FACTOR_ELECTRICITY_DEFAULT if scope2=="Location-based" else 0.0),
-                                    step=0.01)
+    ef_elec_input = st.number_input(
+        "EF (kg/kWh)" if scope2=="Location-based" else "EF (market-based, kg/kWh)",
+        value=float(EMISSION_FACTOR_ELECTRICITY_DEFAULT if scope2=="Location-based" else 0.0),
+        step=0.01
+    )
 
     st.header("Filters")
     tmin_all = df["timestamp"].min().date()
     tmax_all = df["timestamp"].max().date()
-
     range_mode = st.radio("Range mode", ["All data","Custom"], horizontal=True, index=0)
     if range_mode == "Custom":
         start_date, end_date = st.date_input("Date range", value=(tmin_all,tmax_all),
@@ -200,8 +208,13 @@ with st.sidebar:
     else:
         start_date, end_date = tmin_all, tmax_all
 
-    sel_lines = st.multiselect("Line", sorted(df["line"].dropna().unique()))
-    sel_products = st.multiselect("Product", sorted(df["product"].dropna().unique()))
+    # 안전한 옵션 생성
+    line_opts = sorted(pd.Series(df["line"]).dropna().unique().tolist())
+    sel_lines = st.multiselect("Line", line_opts) if line_opts else []
+
+    product_opts = sorted(pd.Series(df["product"]).dropna().unique().tolist())
+    sel_products = st.multiselect("Product", product_opts) if product_opts else []
+
     rule = st.selectbox("Time granularity", ["H","D","W","M"], index=1)
 
     st.header("External Features")
@@ -219,7 +232,7 @@ with st.sidebar:
             base = 70 + 20*np.sin(2*np.pi*(t_days/30)) + np.random.normal(0, 5, len(df))
             df["utilization_pct"] = np.clip(base, 20, 100)
 
-# ---------- 5) Apply filters ----------
+# ---------- Apply filters ----------
 if range_mode == "Custom":
     start_dt = pd.to_datetime(start_date)
     end_dt   = pd.to_datetime(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
@@ -227,22 +240,25 @@ if range_mode == "Custom":
 else:
     df_f = df.copy()
 
-if sel_lines:    df_f = df_f[df_f["line"].isin(sel_lines)]
-if sel_products: df_f = df_f[df_f["product"].isin(sel_products)]
+if sel_lines:
+    df_f = df_f[df_f["line"].isin(sel_lines)]
+if sel_products:
+    df_f = df_f[df_f["product"].isin(sel_products)]
 df_f = df_f.sort_values("timestamp").reset_index(drop=True)
 
-# ---------- 6) Carbon + Resample ----------
+# ---------- Carbon + Resample ----------
 df_c = add_carbon_columns(df_f, ef_elec_input)
 df_g = resample_df(df_c, rule)
 
-# ---------- 7) KPIs ----------
-k1,k2,k3,k4 = st.columns(4)
-k1.metric("Total CO₂e (kg)", f"{df_g['co2e_kg'].sum():,.0f}")
-k2.metric("Avg PCF (kg/ton)", f"{df_g['pcf_kg_per_ton'].mean():,.2f}")
-k3.metric(f"Last {rule} CO₂e (kg)", f"{(df_g['co2e_kg'].iloc[-1] if not df_g.empty else 0):,.1f}")
-k4.metric("Periods", f"{len(df_g):,}")
+# ---------- KPIs ----------
+c1,c2,c3,c4 = st.columns(4)
+c1.metric("Total CO₂e (kg)", f"{df_g['co2e_kg'].sum():,.0f}")
+c2.metric("Avg PCF (kg/ton)", f"{df_g['pcf_kg_per_ton'].mean():,.2f}")
+last_val = df_g["co2e_kg"].iloc[-1] if not df_g.empty else 0.0
+c3.metric(f"Last {rule} CO₂e (kg)", f"{last_val:,.1f}")
+c4.metric("Periods", f"{len(df_g):,}")
 
-# ---------- 8) Main Chart ----------
+# ---------- Main Chart ----------
 st.subheader("Time-series overview")
 if not df_g.empty:
     fig = go.Figure()
@@ -255,14 +271,14 @@ if not df_g.empty:
 else:
     st.warning("No data in selected range.")
 
-# ---------- 9) STL (optional if statsmodels installed) ----------
+# ---------- STL (optional if statsmodels installed) ----------
 def section_stl(df_g: pd.DataFrame):
     st.subheader("Seasonal-Trend Decomposition (STL)")
     with st.expander("Show STL"):
         try:
             import statsmodels.api as sm
         except Exception:
-            st.info("`statsmodels`가 설치되어 있지 않습니다. requirements.txt에 `statsmodels==0.14.3` 추가하면 활성화됩니다.")
+            st.info("`statsmodels` 미설치 — requirements.txt에 `statsmodels==0.14.3` 추가 시 활성화됩니다.")
             return
         try:
             s = df_g.set_index("timestamp")["co2e_kg"]
@@ -278,7 +294,7 @@ def section_stl(df_g: pd.DataFrame):
         except Exception as e:
             st.info(f"STL skipped: {e}")
 
-# ---------- 10) Anomaly ----------
+# ---------- Anomaly ----------
 def section_anomaly(df_g: pd.DataFrame):
     st.subheader("Anomaly Detection")
     with st.expander("Detect anomalies"):
@@ -299,7 +315,7 @@ def section_anomaly(df_g: pd.DataFrame):
         fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TXT, title="Anomaly detection")
         st.plotly_chart(fig, use_container_width=True)
 
-# ---------- 11) Forecast (light) ----------
+# ---------- Forecast (light) ----------
 def section_forecast(df_g: pd.DataFrame):
     st.subheader("Forecasting")
     with st.expander("Train & forecast"):
@@ -330,7 +346,7 @@ def section_forecast(df_g: pd.DataFrame):
         st.plotly_chart(fig, use_container_width=True)
         st.session_state["pred_series"] = pd.Series(pred, index=te["timestamp"])
 
-# ---------- 12) Optimization ----------
+# ---------- Optimization ----------
 def section_optimization(df_g: pd.DataFrame, df_c: pd.DataFrame):
     st.subheader("Optimization (toy)")
     with st.expander("Run optimization"):
@@ -364,7 +380,7 @@ def section_optimization(df_g: pd.DataFrame, df_c: pd.DataFrame):
             "cost":round(cost_opt,2),"co2e":round(co2e_opt,2),"success":bool(res.success)
         }]), use_container_width=True)
 
-# ---------- 13) Carbon Pricing ----------
+# ---------- Carbon Pricing ----------
 def section_carbon_pricing():
     st.subheader("Carbon Pricing")
     with st.expander("Apply price"):
@@ -380,7 +396,7 @@ def section_carbon_pricing():
         st.plotly_chart(fig, use_container_width=True)
         st.dataframe(df_cost.tail(12), use_container_width=True)
 
-# ---------- 14) Partner Hub (Benchmark / Invite / Trust) ----------
+# ---------- Partner Hub ----------
 def section_partner_hub():
     st.subheader("Partner Hub — Benchmark • Invite • Trust")
     tab_b, tab_i, tab_t = st.tabs(["Benchmark","Invite","Trust"])
@@ -398,7 +414,7 @@ def section_partner_hub():
                 a,b,c = st.columns(3)
                 a.metric("Our Avg PCF", f"{ours:,.2f}")
                 b.metric("Peer Avg PCF", f"{peers:,.2f}")
-                c.metric("Gap (peer - us)", f"{peers-ours:,.2f}")
+                c.metric("Gap (peer-us)", f"{peers-ours:,.2f}")
 
     with tab_i:
         code = st.text_input("Invite code", value=str(uuid.uuid4()))
@@ -431,7 +447,7 @@ def section_partner_hub():
         st.text_input("SHA256(data_slice)", value=digest, disabled=True)
         st.caption(f"Scope2: {scope2} • EF_electricity(kg/kWh): {ef_elec_input} • EF_gas(kg/m³): {EMISSION_FACTOR_GAS}")
 
-# ---------- 15) PDF Export ----------
+# ---------- PDF Export ----------
 def section_pdf():
     st.subheader("Export KPI / Report (PDF)")
     def build_pdf(df_summary: pd.DataFrame, kpis: dict) -> bytes:
@@ -455,7 +471,7 @@ def section_pdf():
     else:
         st.info("No data to export.")
 
-# ---------- 16) Sections render ----------
+# ---------- Render sections ----------
 section_stl(df_g)
 section_anomaly(df_g)
 section_forecast(df_g)
