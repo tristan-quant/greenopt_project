@@ -1,25 +1,30 @@
 # =====================================================
-# GreenOpt — Digital ESG Engine (FINAL • All-in-One • Ultra-Dark)
-# Single-file app.py (self-contained)
+# GreenOpt — Carbon Intelligence Platform (FINAL • Multi-Tab • Ultra-Dark)
+# One-file Streamlit app (put this file at: greenopt_project/app/app.py)
+# Python 3.11.x recommended (runtime.txt -> "3.11.9")
 # =====================================================
 from __future__ import annotations
 
 from pathlib import Path
 from io import BytesIO
-import json, uuid, hashlib
+import json, uuid, hashlib, math
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image
 import plotly.graph_objects as go
-from sklearn.ensemble import IsolationForest, GradientBoostingRegressor
+from sklearn.ensemble import IsolationForest, GradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 from scipy.optimize import minimize
 
-# PDF (optional; installed via requirements)
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+# Optional libs (guard imports)
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    _HAS_REPORTLAB = True
+except Exception:
+    _HAS_REPORTLAB = False
 
 # ---------- Page ----------
 st.set_page_config(page_title="GreenOpt — Carbon Intelligence Platform", layout="wide")
@@ -32,6 +37,7 @@ GRID = "#1f2937"   # chart grid
 BORDER = "#374151" # subtle borders
 GREEN= "#22c55e"   # brand green
 RED  = "#ef4444"   # red for decrease buttons
+BLUE = "#60a5fa"
 
 def apply_theme():
     st.markdown(f"""
@@ -40,10 +46,10 @@ def apply_theme():
         background: {BG} !important; color: {TXT} !important;
     }}
     [data-testid="stHeader"] {{ background: transparent !important; }}
+
     [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
         background: {BG2} !important; color: {TXT} !important;
     }}
-
     a, a:link, a:visited {{ color: {GREEN} !important; text-decoration: none !important; }}
     a:hover {{ text-decoration: underline !important; }}
 
@@ -78,7 +84,6 @@ def apply_theme():
         border-color: {GREEN} !important;
     }}
 
-    /* NumberInput +/- */
     .stNumberInput div[data-baseweb="input"], .stNumberInput input {{
         background:{BG2} !important; color:{TXT} !important;
         border:1px solid {BORDER} !important; border-radius:10px !important;
@@ -86,7 +91,6 @@ def apply_theme():
     .stNumberInput button[aria-label="Decrease value"] {{ border:1px solid {RED} !important; }}
     .stNumberInput button[aria-label="Increase value"] {{ border:1px solid {GREEN} !important; }}
 
-    /* Tabs */
     .stTabs [role="tablist"] {{ border-bottom: 1px solid {BORDER} !important; }}
     .stTabs [role="tab"] {{
         background:{BG2} !important; color:{TXT} !important;
@@ -102,7 +106,6 @@ def apply_theme():
         color:{TXT} !important; padding:12px 10px !important;
     }}
 
-    /* Tables / Metrics */
     [data-testid="stStyledTable"] thead th {{ background:#0f172a !important; color:{TXT} !important; }}
     [data-testid="stStyledTable"] tbody td {{ background:{BG2} !important; color:{TXT} !important; border-color:{GRID} !important; }}
     [data-testid="stTable"] th, [data-testid="stTable"] td {{ color:{TXT} !important; background:{BG2} !important; border-color:{BORDER} !important; }}
@@ -138,8 +141,8 @@ ASSET_DIR = APP_DIR / "assets"
 DEFAULT_CSV = DATA_DIR / "factory_data.csv"
 
 # ---------- Defaults ----------
-EMISSION_FACTOR_ELECTRICITY_DEFAULT = 0.475  # kg/kWh
-EMISSION_FACTOR_GAS = 2.0                    # kg/m3
+EF_ELECTRICITY_DEFAULT = 0.475  # kg/kWh
+EF_GAS = 2.0                    # kg/m3
 
 # ---------- Utilities ----------
 @st.cache_data(show_spinner=False)
@@ -167,9 +170,42 @@ def resample_df(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 def add_carbon_columns(df_in: pd.DataFrame, ef_elec: float) -> pd.DataFrame:
     out = df_in.copy()
-    out["co2e_kg"] = out["electricity_kwh"]*float(ef_elec) + out["gas_m3"]*EMISSION_FACTOR_GAS
+    out["co2e_kg"] = out["electricity_kwh"]*float(ef_elec) + out["gas_m3"]*EF_GAS
     out["pcf_kg_per_ton"] = np.where(out["production_ton"]>0, out["co2e_kg"]/out["production_ton"], np.nan)
     return out
+
+def kpi_cards(df_g: pd.DataFrame, rule: str):
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Total CO₂e (kg)", f"{df_g['co2e_kg'].sum():,.0f}")
+    c2.metric("Avg PCF (kg/ton)", f"{df_g['pcf_kg_per_ton'].mean():,.2f}")
+    last_val = df_g["co2e_kg"].iloc[-1] if not df_g.empty else 0.0
+    c3.metric(f"Last {rule} CO₂e (kg)", f"{last_val:,.1f}")
+    c4.metric("Periods", f"{len(df_g):,}")
+
+def plot_main_series(df_g: pd.DataFrame, df_full: pd.DataFrame):
+    st.subheader("Time-series overview")
+    if df_g.empty:
+        st.warning("No data in selected range."); return
+    y = df_g["co2e_kg"].astype(float)
+    x = pd.to_datetime(df_g["timestamp"])
+    trace_mode = "lines+markers"  # force line even on short windows
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=y, mode=trace_mode, name="CO₂e (kg)",
+        line=dict(color=GREEN, width=2.4),
+        marker=dict(size=6, color=GREEN)
+    ))
+    xmin = pd.to_datetime(df_full["timestamp"].min())
+    xmax = pd.to_datetime(df_full["timestamp"].max())
+    if pd.notna(xmin) and pd.notna(xmax) and xmin < xmax:
+        fig = style_fig(fig, x_range=[xmin, xmax])
+    else:
+        fig = style_fig(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
+def safe_mean(x):
+    x = pd.to_numeric(x, errors="coerce")
+    return float(np.nanmean(x)) if np.isfinite(np.nanmean(x)) else np.nan
 
 # ---------- Header with logo ----------
 lc, rc = st.columns([0.14, 0.86])
@@ -189,14 +225,14 @@ with lc:
         st.caption("Tip: place logo at app/assets/greenopt_logo.png")
 with rc:
     st.title("GreenOpt — AI Carbon Intelligence Platform")
-    st.caption("Forecast • Optimization • Anomaly • Digital ESG")
+    st.caption("Forecast • Optimization • Product Carbon • Carbon Market • Supply Chain • Partner Hub")
 
 st.divider()
 
-# ---------- Sidebar ----------
+# ---------- Sidebar (Global controls) ----------
 with st.sidebar:
     st.header("Data")
-    up = st.file_uploader("Upload CSV (3+ years preferred)", type=["csv"])
+    up = st.file_uploader("Upload CSV (factory data)", type=["csv"])
     if up:
         df = pd.read_csv(up)
         df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
@@ -224,7 +260,7 @@ with st.sidebar:
     scope2 = st.selectbox("Electricity EF method", ["Location-based","Market-based"], index=0)
     ef_elec_input = st.number_input(
         "EF (kg/kWh)" if scope2=="Location-based" else "EF (market-based, kg/kWh)",
-        value=float(EMISSION_FACTOR_ELECTRICITY_DEFAULT if scope2=="Location-based" else 0.0),
+        value=float(EF_ELECTRICITY_DEFAULT if scope2=="Location-based" else 0.0),
         step=0.01
     )
 
@@ -289,123 +325,85 @@ if sel_products:
     df_f = df_f[df_f["product"].isin(sel_products)]
 df_f = df_f.sort_values("timestamp").reset_index(drop=True)
 
-# Too short? fallback to full
+# Fallback if too short selection
 full_span = (df["timestamp"].max() - df["timestamp"].min()).days + 1
 sel_span  = (df_f["timestamp"].max() - df_f["timestamp"].min()).days + 1 if not df_f.empty else 0
 if sel_span == 0 or sel_span < max(1, int(full_span * 0.30)):
     df_f = df.copy()
 
+# Quick diagnostics
+st.caption(
+    f"Raw rows: {len(df):,} | Filtered rows: {len(df_f):,} | "
+    f"Start: {df_f['timestamp'].min().date()} → End: {df_f['timestamp'].max().date()}"
+)
+
 # ---------- Carbon + Resample ----------
 df_c = add_carbon_columns(df_f, ef_elec_input)
 df_g = resample_df(df_c, rule)
 
-# ---------- KPIs ----------
-c1,c2,c3,c4 = st.columns(4)
-c1.metric("Total CO₂e (kg)", f"{df_g['co2e_kg'].sum():,.0f}")
-c2.metric("Avg PCF (kg/ton)", f"{df_g['pcf_kg_per_ton'].mean():,.2f}")
-last_val = df_g["co2e_kg"].iloc[-1] if not df_g.empty else 0.0
-c3.metric(f"Last {rule} CO₂e (kg)", f"{last_val:,.1f}")
-c4.metric("Periods", f"{len(df_g):,}")
+# Auto switch to more granular rule if too few periods after resample
+if len(df_g) < 6:
+    fallback = {"M": "W", "W": "D", "D": "H"}
+    if rule in fallback:
+        new_rule = fallback[rule]
+        df_g = resample_df(df_c, new_rule)
+        st.info(f"Too few periods for '{rule}'. Auto-switched to '{new_rule}' for visibility.")
 
-# ---------- Main Chart ----------
-st.subheader("Time-series overview")
-if not df_g.empty:
-    y = df_g["co2e_kg"].astype(float)
-    x = pd.to_datetime(df_g["timestamp"])
-    trace_mode = "lines+markers" if len(df_g) >= 2 else "markers"
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x, y=y, mode=trace_mode, name="CO₂e (kg)",
-        line=dict(color=GREEN, width=2.4),
-        marker=dict(size=6, color=GREEN)
-    ))
-    xmin = pd.to_datetime(df["timestamp"].min())
-    xmax = pd.to_datetime(df["timestamp"].max())
-    if pd.notna(xmin) and pd.notna(xmax) and xmin < xmax:
-        fig = style_fig(fig, x_range=[xmin, xmax])
-    else:
-        fig = style_fig(fig)
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("No data in selected range.")
+# =========================
+# TABS
+# =========================
+tab_dash, tab_prod, tab_market, tab_supply, tab_studio, tab_partner, tab_export, tab_api = st.tabs([
+    "Dashboard", "Product Carbon Analyzer", "Carbon Market", 
+    "Supply Chain Map", "AI Forecast Studio", "Partner Hub",
+    "Export / Reports", "Data & API"
+])
 
-# ---------- STL (optional) ----------
-def section_stl(df_g: pd.DataFrame):
-    st.subheader("Seasonal-Trend Decomposition (STL)")
-    with st.expander("Show STL"):
+# ---------- Dashboard ----------
+with tab_dash:
+    kpi_cards(df_g, rule)
+    plot_main_series(df_g, df)
+    st.divider()
+
+    # STL (optional)
+    with st.expander("Seasonal-Trend Decomposition (STL)"):
         try:
             import statsmodels.api as sm
-        except Exception:
-            st.info("`statsmodels` 미설치 — requirements.txt에 `statsmodels==0.14.3` 추가 시 활성화됩니다.")
-            return
-        try:
             s = df_g.set_index("timestamp")["co2e_kg"]
             step = df_g["timestamp"].diff().mode()[0]
             s = s.asfreq(step, method="pad")
             stl = sm.tsa.STL(s, robust=True).fit()
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=stl.trend.index,   y=stl.trend.values,   name="Trend",    line=dict(color=GREEN)))
-            fig.add_trace(go.Scatter(x=stl.seasonal.index,y=stl.seasonal.values,name="Seasonal"))
-            fig.add_trace(go.Scatter(x=stl.resid.index,   y=stl.resid.values,   name="Residual"))
+            fig.add_trace(go.Scatter(x=stl.trend.index, y=stl.trend.values, name="Trend", line=dict(color=GREEN)))
+            fig.add_trace(go.Scatter(x=stl.seasonal.index, y=stl.seasonal.values, name="Seasonal"))
+            fig.add_trace(go.Scatter(x=stl.resid.index, y=stl.resid.values, name="Residual"))
             st.plotly_chart(style_fig(fig), use_container_width=True)
         except Exception as e:
-            st.info(f"STL skipped: {e}")
+            st.info(f"STL not available (install statsmodels). {e}")
 
-# ---------- Anomaly ----------
-def section_anomaly(df_g: pd.DataFrame):
-    st.subheader("Anomaly Detection")
-    with st.expander("Detect anomalies"):
+    # Anomaly
+    with st.expander("Anomaly Detection"):
         if len(df_g) < 30:
-            st.info("Need at least 30 periods."); return
-        X = df_g[["co2e_kg"]].fillna(method="ffill")
-        iso = IsolationForest(contamination=0.02, random_state=42)
-        labels = iso.fit_predict(X)
-        v = df_g.copy(); v["anomaly"] = (labels == -1)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=v["timestamp"], y=v["co2e_kg"], mode="lines",
-                                 name="CO₂e", line=dict(color=GREEN, width=2.0)))
-        aa = v[v["anomaly"]]
-        fig.add_trace(go.Scatter(x=aa["timestamp"], y=aa["co2e_kg"], mode="markers",
-                                 name="Anomaly", marker=dict(size=8, symbol="x", color="#FCA5A5")))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.info("Need at least 30 periods.")
+        else:
+            X = df_g[["co2e_kg"]].fillna(method="ffill")
+            iso = IsolationForest(contamination=0.02, random_state=42)
+            labels = iso.fit_predict(X)
+            v = df_g.copy(); v["anomaly"] = (labels == -1)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=v["timestamp"], y=v["co2e_kg"], mode="lines",
+                                     name="CO₂e", line=dict(color=GREEN, width=2.0)))
+            aa = v[v["anomaly"]]
+            fig.add_trace(go.Scatter(x=aa["timestamp"], y=aa["co2e_kg"], mode="markers",
+                                     name="Anomaly", marker=dict(size=8, symbol="x", color="#FCA5A5")))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ---------- Forecast ----------
-def section_forecast(df_g: pd.DataFrame):
-    st.subheader("Forecasting")
-    with st.expander("Train & forecast"):
-        if len(df_g) < 20:
-            st.info("Need more data to forecast."); return
-        horizon = st.slider("Forecast horizon (periods)", 7 if rule=="D" else 24, 60, 14)
-        dff = df_g[["timestamp","co2e_kg"]].copy()
-        dff["lag1"] = dff["co2e_kg"].shift(1)
-        dff = dff.dropna().reset_index(drop=True)
-        if len(dff) <= horizon + 1:
-            st.info("Not enough data after feature engineering."); return
-        tr, te = dff.iloc[:-horizon], dff.iloc[-horizon:]
-        y_tr, y_te = tr["co2e_kg"], te["co2e_kg"]
-        X_tr, X_te = tr[["lag1"]], te[["lag1"]]
-        gbr = GradientBoostingRegressor(random_state=42).fit(X_tr, y_tr)
-        pred = gbr.predict(X_te)
-        mae = mean_absolute_error(y_te, pred)
-        a,b = st.columns(2)
-        a.metric("MAE", f"{mae:,.2f}")
-        b.metric("Last pred", f"{pred[-1]:,.2f}")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=tr["timestamp"], y=tr["co2e_kg"], name="Train"))
-        fig.add_trace(go.Scatter(x=te["timestamp"], y=y_te, name="Actual"))
-        fig.add_trace(go.Scatter(x=te["timestamp"], y=pred, name="Forecast", line=dict(color=GREEN, width=2.2)))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-        st.session_state["pred_series"] = pd.Series(pred, index=te["timestamp"])
-
-# ---------- Optimization ----------
-def section_optimization(df_g: pd.DataFrame, df_c: pd.DataFrame):
-    st.subheader("Optimization (toy)")
-    with st.expander("Run optimization"):
+    # Optimization (toy)
+    with st.expander("Optimization (toy)"):
         scenario = st.selectbox("Scenario", ["Min Cost (CO₂e cap)","Min Emissions (Production target)"])
         co2e_cap = st.number_input("CO₂e cap (kg)", value=float(df_g["co2e_kg"].quantile(0.75)) if not df_g.empty else 1000.0, step=50.0)
         prod_tgt  = st.number_input("Production target (ton)", value=float(df_c["production_ton"].mean()*24) if not df_c.empty else 100.0, step=10.0)
         price_e, price_g = 0.15, 0.08
-        ef_e, ef_g = ef_elec_input, EMISSION_FACTOR_GAS
+        ef_e, ef_g = ef_elec_input, EF_GAS
 
         if scenario.startswith("Min Cost"):
             def obj(x): e,g=x; return price_e*e + price_g*g
@@ -431,23 +429,152 @@ def section_optimization(df_g: pd.DataFrame, df_c: pd.DataFrame):
             "cost":round(cost_opt,2),"co2e":round(co2e_opt,2),"success":bool(res.success)
         }]), use_container_width=True)
 
-# ---------- Carbon Pricing ----------
-def section_carbon_pricing():
-    st.subheader("Carbon Pricing")
-    with st.expander("Apply price"):
-        price_per_t = st.number_input("Carbon price (per tCO₂e)", value=85.0, step=1.0)
-        df_cost = pd.DataFrame({
-            "timestamp": df_g["timestamp"],
-            "cost_local": (df_g["co2e_kg"]/1000.0) * price_per_t
+# ---------- Product Carbon Analyzer ----------
+with tab_prod:
+    st.subheader("제품별 탄소발자국(PCF) 자동 계산기")
+    st.caption("CSV 포맷 예시: product, process, activity_value, emission_factor_kg_per_unit")
+
+    pcol1, pcol2 = st.columns([0.6, 0.4])
+
+    with pcol1:
+        p_up = st.file_uploader("Upload product LCA CSV", type=["csv"], key="pcf")
+        if p_up:
+            p_df = pd.read_csv(p_up)
+        else:
+            # sample template
+            p_df = pd.DataFrame({
+                "product": ["EV-battery","EV-battery","EV-battery","EV-battery"],
+                "process": ["Electricity","Gas","Cathode","Anode"],
+                "activity_value": [1200, 180, 0.8, 0.6],  # kWh, m3, kg, kg
+                "emission_factor_kg_per_unit": [0.475, 2.0, 65.0, 45.0],
+            })
+        p_df["co2e_kg"] = p_df["activity_value"] * p_df["emission_factor_kg_per_unit"]
+        total_pcf = p_df["co2e_kg"].sum()
+        st.metric("PCF (kg CO₂e / unit)", f"{total_pcf:,.2f}")
+        st.dataframe(p_df, use_container_width=True, height=280)
+
+    with pcol2:
+        # Sankey diagram (process breakdown)
+        try:
+            labels = p_df["process"].astype(str).tolist() + ["Product"]
+            sources = list(range(len(p_df)))
+            targets = [len(p_df)] * len(p_df)
+            values  = p_df["co2e_kg"].astype(float).tolist()
+            sankey = go.Figure(data=[go.Sankey(
+                node=dict(label=labels, color=[BLUE]*len(labels)),
+                link=dict(source=sources, target=targets, value=values)
+            )])
+            sankey.update_layout(paper_bgcolor=BG, font_color=TXT)
+            st.plotly_chart(sankey, use_container_width=True)
+        except Exception as e:
+            st.info(f"Sankey unavailable: {e}")
+
+    st.divider()
+    st.caption("Tip: 동일 산업군 템플릿을 표준화하면, 배터리 1개당 CO₂e를 정밀 산출하고 제품/공정 비교가 가능합니다.")
+
+# ---------- Carbon Market (Emission Allowances) ----------
+with tab_market:
+    st.subheader("탄소배출권 시세 예측 (Beta)")
+    st.caption("CSV 포맷 예시: date, price (e.g., EU ETS / KR ETS / CCA). 업로드가 없으면 샘플 시계열 사용.")
+    m_up = st.file_uploader("Upload carbon price CSV", type=["csv"], key="mkt")
+    if m_up:
+        m_df = pd.read_csv(m_up)
+        m_df["date"] = pd.to_datetime(m_df["date"]).dt.tz_localize(None)
+        m_df = m_df.sort_values("date")
+        price = pd.DataFrame({"timestamp": m_df["date"], "price": pd.to_numeric(m_df["price"], errors="coerce")})
+    else:
+        # synthetic sample (2y daily)
+        idx = pd.date_range("2024-01-01", periods=450, freq="D")
+        rng = np.random.default_rng(0)
+        base = 80 + np.cumsum(rng.normal(0, 0.6, len(idx)))
+        price = pd.DataFrame({"timestamp": idx, "price": base})
+
+    st.line_chart(price.set_index("timestamp")["price"])
+
+    if len(price) >= 60:
+        with st.expander("Train & forecast price"):
+            horizon = st.slider("Horizon (days)", 15, 120, 60)
+            dff = price.copy()
+            dff["lag1"] = dff["price"].shift(1)
+            dff["lag7"] = dff["price"].shift(7)
+            dff = dff.dropna().reset_index(drop=True)
+            if len(dff) > horizon + 5:
+                tr, te = dff.iloc[:-horizon], dff.iloc[-horizon:]
+                y_tr, y_te = tr["price"], te["price"]
+                X_tr, X_te = tr[["lag1","lag7"]], te[["lag1","lag7"]]
+                model = RandomForestRegressor(random_state=42, n_estimators=300)
+                model.fit(X_tr, y_tr)
+                pred = model.predict(X_te)
+                mae = mean_absolute_error(y_te, pred)
+                st.metric("MAE", f"{mae:,.3f}")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=tr["timestamp"], y=y_tr, name="Train"))
+                fig.add_trace(go.Scatter(x=te["timestamp"], y=y_te, name="Actual"))
+                fig.add_trace(go.Scatter(x=te["timestamp"], y=pred, name="Forecast", line=dict(color=GREEN, width=2.2)))
+                st.plotly_chart(style_fig(fig), use_container_width=True)
+                # cost impact (connect to df_g)
+                if not df_g.empty:
+                    latest_ton = st.number_input("Apply to emissions (tCO₂e)", value=float(df_g["co2e_kg"].sum()/1000.0), step=10.0)
+                    st.caption("예측 가격 x 배출량(t) = 예상 비용")
+                    cost_forecast = pd.DataFrame({
+                        "timestamp": te["timestamp"],
+                        "cost": (pred * latest_ton)
+                    })
+                    st.line_chart(cost_forecast.set_index("timestamp")["cost"])
+            else:
+                st.info("Not enough data after lag features.")
+    else:
+        st.info("Need at least 60 daily points for forecasting.")
+
+# ---------- Supply Chain Map (Scope 3 — simple placeholder) ----------
+with tab_supply:
+    st.subheader("공급망 탄소흐름 (Scope 1~3) — Map & Flow")
+    st.caption("CSV 포맷 예시: site, lat, lon, co2e_kg. 업로드 없으면 샘플 표시.")
+    s_up = st.file_uploader("Upload supply chain sites", type=["csv"], key="scm")
+    if s_up:
+        sc = pd.read_csv(s_up)
+    else:
+        sc = pd.DataFrame({
+            "site": ["Mine","Cathode Plant","Cell Factory","OEM"],
+            "lat": [35.0, 34.6, 33.9, 33.5],
+            "lon": [135.0, 135.8, 136.1, 129.0],
+            "co2e_kg": [120000, 90000, 200000, 80000]
         })
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_cost["timestamp"], y=df_cost["cost_local"], mode="lines",
-                                 name="Carbon Cost", line=dict(color=GREEN, width=2.1)))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-        st.dataframe(df_cost.tail(12), use_container_width=True)
+    st.map(sc.rename(columns={"lat":"latitude","lon":"longitude"}), zoom=4, size="co2e_kg")
+    st.dataframe(sc, use_container_width=True)
+
+# ---------- AI Forecast Studio (factory CO2e series) ----------
+with tab_studio:
+    st.subheader("AI Forecast Studio — Factory CO₂e")
+    st.caption("내장 GradientBoosting + Lag1 (간결 버전)")
+    if len(df_g) < 20:
+        st.info("Need >= 20 periods in aggregated series.")
+    else:
+        horizon = st.slider("Forecast horizon (periods)", 7 if rule=="D" else 24, 90, 14)
+        dff = df_g[["timestamp","co2e_kg"]].copy()
+        dff["lag1"] = dff["co2e_kg"].shift(1)
+        dff = dff.dropna().reset_index(drop=True)
+        if len(dff) <= horizon + 1:
+            st.info("Not enough data after feature engineering.")
+        else:
+            tr, te = dff.iloc[:-horizon], dff.iloc[-horizon:]
+            y_tr, y_te = tr["co2e_kg"], te["co2e_kg"]
+            X_tr, X_te = tr[["lag1"]], te[["lag1"]]
+            gbr = GradientBoostingRegressor(random_state=42).fit(X_tr, y_tr)
+            pred = gbr.predict(X_te)
+            mae = mean_absolute_error(y_te, pred)
+            a,b = st.columns(2)
+            a.metric("MAE", f"{mae:,.2f}")
+            b.metric("Last pred", f"{pred[-1]:,.2f}")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=tr["timestamp"], y=tr["co2e_kg"], name="Train"))
+            fig.add_trace(go.Scatter(x=te["timestamp"], y=y_te, name="Actual"))
+            fig.add_trace(go.Scatter(x=te["timestamp"], y=pred, name="Forecast", line=dict(color=GREEN, width=2.2)))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.session_state["pred_series"] = pd.Series(pred, index=te["timestamp"])
 
 # ---------- Partner Hub ----------
-def section_partner_hub():
+with tab_partner:
     st.subheader("Partner Hub — Benchmark • Invite • Trust")
     tab_b, tab_i, tab_t = st.tabs(["Benchmark","Invite","Trust"])
 
@@ -495,41 +622,52 @@ def section_partner_hub():
         }).to_csv(index=False)
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         st.text_input("SHA256(data_slice)", value=digest, disabled=True)
-        st.caption(f"Scope2: {scope2} • EF_electricity(kg/kWh): {ef_elec_input} • EF_gas(kg/m³): {EMISSION_FACTOR_GAS}")
+        st.caption(f"Scope2: {scope2} • EF_electricity(kg/kWh): {ef_elec_input} • EF_gas(kg/m³): {EF_GAS}")
 
-# ---------- PDF Export ----------
-def section_pdf():
-    st.subheader("Export KPI / Report (PDF)")
+# ---------- Export / Reports ----------
+with tab_export:
+    st.subheader("Export KPI / Report")
+    if _HAS_REPORTLAB:
+        def build_pdf(df_summary: pd.DataFrame, kpis: dict) -> bytes:
+            buf = BytesIO(); c = canvas.Canvas(buf, pagesize=A4); w,h = A4; y = h-50
+            c.setFont("Helvetica-Bold", 16); c.drawString(40,y, "GreenOpt — Carbon Intelligence Report"); y-=25
+            c.setFont("Helvetica", 10); c.drawString(40,y, f"Scope2: {scope2} | EF_elec: {ef_elec_input} kg/kWh"); y-=15
+            c.drawString(40,y, f"Period: {str(df_summary['timestamp'].min().date())} ~ {str(df_summary['timestamp'].max().date())}"); y-=25
+            c.setFont("Helvetica-Bold", 12); c.drawString(40,y, "KPIs"); y-=18
+            c.setFont("Helvetica", 10)
+            for k,v in kpis.items(): c.drawString(50,y, f"- {k}: {v}"); y-=14
+            c.showPage(); c.save(); buf.seek(0); return buf.read()
 
-    def build_pdf(df_summary: pd.DataFrame, kpis: dict) -> bytes:
-        buf = BytesIO(); c = canvas.Canvas(buf, pagesize=A4); w,h = A4; y = h-50
-        c.setFont("Helvetica-Bold", 16); c.drawString(40,y, "GreenOpt — Carbon Intelligence Report"); y-=25
-        c.setFont("Helvetica", 10); c.drawString(40,y, f"Scope2: {scope2} | EF_elec: {ef_elec_input} kg/kWh"); y-=15
-        c.drawString(40,y, f"Period: {str(df_summary['timestamp'].min().date())} ~ {str(df_summary['timestamp'].max().date())}"); y-=25
-        c.setFont("Helvetica-Bold", 12); c.drawString(40,y, "KPIs"); y-=18
-        c.setFont("Helvetica", 10)
-        for k,v in kpis.items(): c.drawString(50,y, f"- {k}: {v}"); y-=14
-        c.showPage(); c.save(); buf.seek(0); return buf.read()
-
-    if not df_g.empty:
-        kpis = {
-            "Total CO₂e (kg)": f"{df_g['co2e_kg'].sum():,.0f}",
-            "Avg PCF (kg/ton)": f"{df_g['pcf_kg_per_ton'].mean():,.2f}",
-            f"Periods ({rule})": f"{len(df_g):,}",
-        }
-        pdf = build_pdf(df_g, kpis)
-        st.download_button("📄 Download KPI Report (PDF)", data=pdf, file_name="greenopt_report.pdf", mime="application/pdf")
+        if not df_g.empty:
+            kpis = {
+                "Total CO₂e (kg)": f"{df_g['co2e_kg'].sum():,.0f}",
+                "Avg PCF (kg/ton)": f"{df_g['pcf_kg_per_ton'].mean():,.2f}",
+                f"Periods ({rule})": f"{len(df_g):,}",
+            }
+            pdf = build_pdf(df_g, kpis)
+            st.download_button("📄 Download KPI Report (PDF)", data=pdf, file_name="greenopt_report.pdf", mime="application/pdf")
+        else:
+            st.info("No data to export.")
     else:
-        st.info("No data to export.")
+        st.info("reportlab 미설치 — requirements.txt에 `reportlab==4.2.5` 추가 시 활성화됩니다.")
 
-# ---------- Render sections ----------
-section_stl(df_g)
-section_anomaly(df_g)
-section_forecast(df_g)
-section_optimization(df_g, df_c)
-section_carbon_pricing()
-section_partner_hub()
-section_pdf()
+# ---------- Data & API ----------
+with tab_api:
+    st.subheader("Open Carbon API (Mock)")
+    st.caption("파트너 API 연동을 위한 요청 페이로드 예시 (JSON 스키마)")
+    example = {
+        "api_key": "<your_key>",
+        "payload": {
+            "timestamp": "2025-01-01T00:00:00",
+            "electricity_kwh": 150.0,
+            "gas_m3": 25.0,
+            "production_ton": 8.2,
+            "line": "A-Line",
+            "product": "Widget-X"
+        }
+    }
+    st.code(json.dumps(example, indent=2, ensure_ascii=False))
+    st.caption("Note: 실제 API 게이트웨이는 별도 배포에서 제공. 여기서는 스키마와 테스트 업로드 경험을 제공합니다.")
 
-# CSS priority (apply again at bottom)
+# ---------- FINAL CSS priority ----------
 apply_theme()
